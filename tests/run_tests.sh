@@ -14,6 +14,7 @@ fails=0
 
 print "python: $(command -v $py) $($py --version 2>&1)"
 print "rsync:  $(command -v rsync) $(rsync --version 2>&1 | head -1)"
+print "duckdb: $(command -v duckdb) $(env -u AI_AGENT -u CLAUDECODE duckdb --version 2>&1)"
 print
 
 check() {  # check <description> <expected exit> <command...>
@@ -56,7 +57,7 @@ run="${run[1]}"
 for f in catalog.lrcat files.csv manifest.json collector.log; do
   check "run folder has $f" 0 test -f "$run/$f"
 done
-check "files.csv has 7 rows" 0 test "$(( $(wc -l < "$run/files.csv") - 1 ))" -eq 7
+check "files.csv has 9 rows" 0 test "$(( $(wc -l < "$run/files.csv") - 1 ))" -eq 9
 check "failed preflight wrote nothing" 0 test ! -e "$d/vol/Photos/out" -a ! -e "$d/vol/x"
 check "file names are NFC" 0 $py -I -c "
 import sys, unicodedata
@@ -73,6 +74,38 @@ sys.exit(0 if rows and all(r['btime'] for r in rows) else 1)" "$run/files.csv"
 import csv, sys
 rows = {r['name']: r for r in csv.DictReader(open(sys.argv[1], encoding='utf-8'))}
 sys.exit(0 if rows['flagged.jpg']['hidden'] == '1' and rows['root.txt']['hidden'] == '0' else 1)" "$run/files.csv"
+fi
+
+# Load and join (DuckDB), on a copy of the run so the collector output stays as it was
+if ! command -v duckdb > /dev/null; then
+  print "FAIL duckdb not found"; (( fails++ ))
+else
+  ana="$work/analysis"; cp -R "$run" "$ana"
+  check "join: load and join run" 0 env -u AI_AGENT -u CLAUDECODE sh -c \
+    "cd '$ana' && duckdb analysis.duckdb -c \"SET VARIABLE types_csv = '$repo/analysis/types.csv'\" -c '.read $repo/analysis/10_load.sql' -c '.read $repo/analysis/20_join.sql'"
+  check "join: join_check.csv written" 0 test -f "$ana/join_check.csv"
+  expected=(
+    disk_files 9  catalog_masters 4  catalog_sidecars 2  catalog_duplicate_keys 0
+    virtual_copies_excluded 1  matched 5  matched_master 3  matched_sidecar 2
+    disk_only 4  catalog_only 1  matched_case_only 1  catalog_paths_nfc_changed 1
+    catalog_paths_prefix_mapped 0  date_source_catalog 5  date_source_mtime 5  date_source_none 0
+  )
+  for metric value in $expected; do
+    check "join: $metric = $value" 0 $py -I -c "
+import csv, sys
+m = {r['metric']: r['value'] for r in csv.DictReader(open(sys.argv[1]))}
+sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) or 1))" "$ana/join_check.csv" $metric $value
+  done
+  q() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$ana/analysis.duckdb" -c "$1"; }
+  check "join: JPEG of RAW+JPEG pair is a catalogued sidecar" 0 test "$(q "SELECT catalog_role FROM photos WHERE name = 'IMG_0100.JPG'")" = sidecar
+  check "join: raw capture year from catalog" 0 test "$(q "SELECT capture_year || '/' || date_source FROM photos WHERE name = 'IMG_0001.CR2'")" = "2014/catalog"
+  check "join: type groups" 0 test "$(q "SELECT string_agg(name || ':' || type_group, ' ' ORDER BY name) FROM photos WHERE name IN ('.DS_Store','IMG_0001.xmp','IMG_0100.NEF','root.txt')")" = ".DS_Store:system IMG_0001.xmp:sidecar IMG_0100.NEF:raw root.txt:other"
+  check "join: prefix mapping" 0 env -u AI_AGENT -u CLAUDECODE sh -c \
+    "cd '$ana' && duckdb mapped.duckdb -c \"SET VARIABLE types_csv = '$repo/analysis/types.csv'\" -c \"SET VARIABLE path_from = '$d/vol/Photos/'\" -c \"SET VARIABLE path_to = '/elsewhere/'\" -c '.read $repo/analysis/10_load.sql' -c '.read $repo/analysis/20_join.sql'"
+  check "join: prefix mapping applied to all catalog paths" 0 $py -I -c "
+import csv, sys
+m = {r['metric']: r['value'] for r in csv.DictReader(open(sys.argv[1]))}
+sys.exit(0 if m['catalog_paths_prefix_mapped'] == '6' and m['matched'] == '0' else 1)" "$ana/join_check.csv"
 fi
 
 # Push and verify

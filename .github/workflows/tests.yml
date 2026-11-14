@@ -38,6 +38,9 @@ jobs:
           brew install rsync
           echo "$(brew --prefix rsync)/bin" >> "$GITHUB_PATH"
 
+      - name: Install DuckDB
+        run: brew install duckdb
+
       - name: Run tests
         env:
           PYTHON: ${{ matrix.python }}
