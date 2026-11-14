@@ -35,6 +35,10 @@ done
 [[ -n "$run_dir" ]] || die "usage: analysis/run.sh <run_dir> [--out <folder>] [--replace] [--path-from <p> --path-to <p>]"
 [[ -n "$path_from" && -z "$path_to" || -z "$path_from" && -n "$path_to" ]] && die "--path-from and --path-to go together"
 
+# Collapse repeated slashes; catalog paths have single ones
+while [[ "$path_from" == *//* ]]; do path_from="${path_from//\/\///}"; done
+while [[ "$path_to" == *//* ]];   do path_to="${path_to//\/\///}"; done
+
 command -v duckdb  > /dev/null || die "duckdb not found (brew install duckdb)"
 command -v python3 > /dev/null || die "python3 not found"
 db() { env -u AI_AGENT -u CLAUDECODE duckdb -bail "$@"; }

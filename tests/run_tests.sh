@@ -8,6 +8,7 @@ set -uo pipefail
 
 repo="${0:A:h:h}"
 work="${TEST_WORK:-${TMPDIR:-/tmp}/photo-storage-analyzer-tests}"  # outside the repository
+work="${work:a}"  # absolute, no // (macOS TMPDIR ends in /); symlinks kept
 py="${PYTHON:-python3}"
 collect=($py -I "$repo/collector/collect.py")
 fails=0
@@ -120,6 +121,8 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "join: prefix mapping run" 0 $runsh "$run" --out "$work/ana_mapped" --path-from "$d/vol/Photos/" --path-to /elsewhere/
   check "join: prefix mapping applied to all catalog paths" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_paths_prefix_mapped 6
   check "join: prefix mapping leaves nothing matched" 0 metric_is "$work/ana_mapped/join_check.csv" matched 0
+  check "join: double slash in --path-from is collapsed" 0 $runsh "$run" --out "$work/ana_slash" --path-from "${d%/*}//${d:t}/vol//Photos/" --path-to /elsewhere/
+  check "join: double slash mapping applied to all catalog paths" 0 metric_is "$work/ana_slash/join_check.csv" catalog_paths_prefix_mapped 6
 
   for r in "$repo"/analysis/reports/*.sql; do
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
