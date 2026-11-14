@@ -64,6 +64,12 @@ import sys, unicodedata
 t = open(sys.argv[1], encoding='utf-8').read()
 sys.exit(0 if t == unicodedata.normalize('NFC', t) and 'Café.JPG' in t else 1)" "$run/files.csv"
 
+# Scan root through a symlink: paths differ from the catalog's, collector must warn
+ln -s "$d/vol" "$work/vol_link"
+check "collector: warns when scan root does not match catalog root" 0 sh -c \
+  "$py -I '$repo/collector/collect.py' --scan-root '$work/vol_link/Photos' --catalog '$d/lr/Test.lrcat' --out '$work/out_link' 2>&1 | grep -q 'does not overlap'"
+check "collector: no warning when scan root matches" 1 grep -q 'does not overlap' "$run/collector.log"
+
 # macOS only: creation date and hidden flag
 if [[ "$(uname)" == Darwin ]]; then
   check "macOS: btime filled for every row" 0 $py -I -c "

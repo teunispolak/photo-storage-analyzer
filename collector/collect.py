@@ -410,11 +410,15 @@ def main(argv=None) -> int:
             log.info("=" * 60)
             log.info("Catalog copy complete. Lightroom may be restarted now.")
             log.info("=" * 60)
-            if catalog["root_folders"] and not any(
-                    is_within(args.scan_root, Path(r)) or is_within(Path(r), args.scan_root)
-                    for r in catalog["root_folders"]):
-                log.warning("Scan root %s does not overlap any catalog root folder: %s",
-                            args.scan_root, catalog["root_folders"])
+            # Compare as text, as the join does: a path through a symlink
+            # (e.g. /tmp vs /private/tmp on macOS) will not match.
+            root_txt = nfc(os.path.abspath(args.scan_root)).rstrip("/") + "/"
+            cat_txt = [nfc(r).rstrip("/") + "/" for r in catalog["root_folders"]]
+            if cat_txt and not any(root_txt.startswith(c) or c.startswith(root_txt) for c in cat_txt):
+                log.warning("Scan root %s does not overlap any catalog root folder %s; "
+                            "catalog paths will not match. Pass --scan-root as the catalog "
+                            "stores it, or map the prefix with run.sh --path-from/--path-to.",
+                            root_txt, catalog["root_folders"])
 
         files = scan(args.scan_root, run_dir)
 
