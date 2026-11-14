@@ -5,18 +5,23 @@
 --   types_csv   path to analysis/types.csv (required)
 -- Requires a run with a catalog copy (not --skip-catalog).
 --
--- Creates: scan, types, lr_root, lr_folder, lr_file, lr_image
+-- Creates: run_info, scan, types, lr_root, lr_folder, lr_file, lr_image
 -- The catalog is copied into local tables and detached, so later queries do
 -- not need the catalog file.
 
+CREATE OR REPLACE TABLE run_info AS
+SELECT run_id, cast(replace(finished, 'Z', '') AS TIMESTAMP) AS scan_date
+FROM read_json('manifest.json', columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR'});
+
 CREATE OR REPLACE TABLE scan AS
 SELECT
-    nfc_normalize(path)      AS path,
-    nfc_normalize(rel_path)  AS rel_path,
-    top_folder,
-    parent,
-    nfc_normalize(name)      AS name,
-    lower(ext)               AS ext,
+    -- empty CSV fields arrive as NULL; store them as ''
+    nfc_normalize(path)                    AS path,
+    nfc_normalize(rel_path)                AS rel_path,
+    coalesce(nfc_normalize(top_folder), '') AS top_folder,
+    coalesce(nfc_normalize(parent), '')    AS parent,
+    nfc_normalize(name)                    AS name,
+    coalesce(lower(ext), '')               AS ext,
     size_bytes,
     alloc_bytes,
     try_cast(replace(mtime, 'Z', '') AS TIMESTAMP) AS mtime,

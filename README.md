@@ -13,6 +13,7 @@ analysis/verify.py     analysis machine: check a received run against its manife
 analysis/types.csv     extension to type group mapping
 analysis/10_load.sql   load files.csv and the catalog copy into DuckDB
 analysis/20_join.sql   join into the photos table, write join_check.csv
+analysis/reports/      one SQL file per report, each writes reports/<name>.csv
 tests/                 sample data builder and test script
 docs/                  runbooks
 ```
@@ -38,7 +39,7 @@ python3 analysis/verify.py <intake folder>/runs/<run_id>
 zsh tests/run_tests.sh
 ```
 
-Builds sample data in `tests/_work/` (git-ignored) and checks the preflight failure cases, a complete run, push, verify, and the DuckDB load and join. Requires `duckdb` (`brew install duckdb`). Remove `tests/_work/` before a new run.
+Builds sample data in `tests/_work/` (git-ignored) and checks the preflight failure cases, a complete run, push, verify, the DuckDB load and join, and the reports. Requires `duckdb` (`brew install duckdb`). Remove `tests/_work/` before a new run.
 
 ## Docs
 

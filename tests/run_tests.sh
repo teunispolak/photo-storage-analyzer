@@ -106,6 +106,25 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
 import csv, sys
 m = {r['metric']: r['value'] for r in csv.DictReader(open(sys.argv[1]))}
 sys.exit(0 if m['catalog_paths_prefix_mapped'] == '6' and m['matched'] == '0' else 1)" "$ana/join_check.csv"
+
+  # Reports (on the unmapped join)
+  check "reports: rebuild join without mapping" 0 env -u AI_AGENT -u CLAUDECODE sh -c \
+    "cd '$ana' && duckdb analysis.duckdb -c \"SET VARIABLE types_csv = '$repo/analysis/types.csv'\" -c '.read $repo/analysis/10_load.sql' -c '.read $repo/analysis/20_join.sql'"
+  mkdir -p "$ana/reports"
+  for r in "$repo"/analysis/reports/*.sql; do
+    check "reports: ${r:t:r} runs" 0 env -u AI_AGENT -u CLAUDECODE sh -c "cd '$ana' && duckdb analysis.duckdb -c '.read $r'"
+    check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
+  done
+  rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
+  rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$ana/manifest.json")
+  check "reports: every report stamped with run_id" 0 test "$(rq "SELECT count(DISTINCT run_id) || '/' || min(run_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
+  check "reports: raw = 2 files, 9000 bytes" 0 test "$(rq "SELECT files || '/' || bytes FROM '$ana/reports/volume_by_type.csv' WHERE type_group = 'raw'")" = "2/9000"
+  check "reports: by year sums to 9 files" 0 test "$(rq "SELECT sum(files) FROM '$ana/reports/volume_by_year.csv'")" = 9
+  check "reports: 2014 = 2 files dated by catalog" 0 test "$(rq "SELECT files || '/' || dated_by_catalog FROM '$ana/reports/volume_by_year.csv' WHERE capture_year = 2014")" = "2/2"
+  check "reports: root folder = 3 files" 0 test "$(rq "SELECT files FROM read_csv('$ana/reports/volume_by_folder.csv', all_varchar = true) WHERE top_folder = '(root)'")" = 3
+  check "reports: all files in bucket <1 MB" 0 test "$(rq "SELECT bucket || '/' || files FROM '$ana/reports/size_buckets.csv'")" = "<1 MB/9"
+  check "reports: not catalogued = 4 files" 0 test "$(rq "SELECT sum(files) FROM '$ana/reports/not_catalogued.csv'")" = 4
+  check "reports: missing from disk = GONE.DNG" 0 test "$(rq "SELECT string_agg(regexp_extract(path, '[^/]+\$'), ',') FROM '$ana/reports/missing_from_disk.csv'")" = GONE.DNG
 fi
 
 # Push and verify
