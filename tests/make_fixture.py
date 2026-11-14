@@ -5,13 +5,15 @@ Build sample data for tests: a small photo tree and a minimal Lightroom catalog.
 Usage: python3 tests/make_fixture.py <work_dir>
 
 Creates:
-  <work_dir>/vol/Photos/...   photo tree (raw, xmp, jpeg with NFD name, hidden, symlink)
+  <work_dir>/vol/Photos/...   photo tree (raw, xmp, jpeg with NFD name, dot file,
+                              symlink, file with the hidden flag on macOS)
   <work_dir>/lr/Test.lrcat    SQLite file with AgLibraryRootFolder pointing at the tree
 No real customer data is used.
 """
 
 import os
 import sqlite3
+import subprocess
 import sys
 import unicodedata
 from pathlib import Path
@@ -38,6 +40,10 @@ def main() -> int:
     (base / ".DS_Store").write_bytes(b"z")
     (base / "root.txt").write_text("r")
     os.symlink("2014", base / "link2014")
+    flagged = base / "2023" / "flagged.jpg"
+    flagged.write_bytes(b"f" * 10)
+    if sys.platform == "darwin":
+        subprocess.run(["chflags", "hidden", str(flagged)], check=True)
 
     con = sqlite3.connect(work / "lr" / "Test.lrcat")
     con.execute("CREATE TABLE AgLibraryRootFolder (id_local INTEGER, absolutePath TEXT)")

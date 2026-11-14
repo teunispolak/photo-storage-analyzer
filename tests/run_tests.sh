@@ -1,14 +1,20 @@
 #!/bin/zsh
 # Run collector, push and verify against generated sample data.
 # Usage: tests/run_tests.sh      (from the repository root)
+#   PYTHON=/usr/bin/python3 tests/run_tests.sh   to test a specific interpreter
 # Exit 0 if all checks pass.
 
 set -uo pipefail
 
 repo="${0:A:h:h}"
 work="$repo/tests/_work"
-collect=(python3 -I "$repo/collector/collect.py")
+py="${PYTHON:-python3}"
+collect=($py -I "$repo/collector/collect.py")
 fails=0
+
+print "python: $(command -v $py) $($py --version 2>&1)"
+print "rsync:  $(command -v rsync) $(rsync --version 2>&1 | head -1)"
+print
 
 check() {  # check <description> <expected exit> <command...>
   local desc="$1" expected="$2"; shift 2
@@ -26,7 +32,7 @@ if [[ -e "$work" ]]; then
   print "tests: $work exists from an earlier run; remove it first"; exit 1
 fi
 mkdir -p "$work"
-python3 -I "$repo/tests/make_fixture.py" "$work/data" > /dev/null || exit 1
+$py -I "$repo/tests/make_fixture.py" "$work/data" > /dev/null || exit 1
 d="$work/data"
 args=(--scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat")
 
@@ -50,12 +56,24 @@ run="${run[1]}"
 for f in catalog.lrcat files.csv manifest.json collector.log; do
   check "run folder has $f" 0 test -f "$run/$f"
 done
-check "files.csv has 6 rows" 0 test "$(( $(wc -l < "$run/files.csv") - 1 ))" -eq 6
+check "files.csv has 7 rows" 0 test "$(( $(wc -l < "$run/files.csv") - 1 ))" -eq 7
 check "failed preflight wrote nothing" 0 test ! -e "$d/vol/Photos/out" -a ! -e "$d/vol/x"
-check "file names are NFC" 0 python3 -I -c "
+check "file names are NFC" 0 $py -I -c "
 import sys, unicodedata
 t = open(sys.argv[1], encoding='utf-8').read()
 sys.exit(0 if t == unicodedata.normalize('NFC', t) and 'Café.JPG' in t else 1)" "$run/files.csv"
+
+# macOS only: creation date and hidden flag
+if [[ "$(uname)" == Darwin ]]; then
+  check "macOS: btime filled for every row" 0 $py -I -c "
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1], encoding='utf-8')))
+sys.exit(0 if rows and all(r['btime'] for r in rows) else 1)" "$run/files.csv"
+  check "macOS: hidden flag detected" 0 $py -I -c "
+import csv, sys
+rows = {r['name']: r for r in csv.DictReader(open(sys.argv[1], encoding='utf-8'))}
+sys.exit(0 if rows['flagged.jpg']['hidden'] == '1' and rows['root.txt']['hidden'] == '0' else 1)" "$run/files.csv"
+fi
 
 # Push and verify
 key="$work/key"; touch "$key"
@@ -63,9 +81,9 @@ mkdir -p "$work/incomplete" "$work/recv"; touch "$work/incomplete/files.csv"
 check "push: refuses run without manifest" 1 env PHOTO_INTAKE_KEY="$key" zsh "$repo/collector/push.sh" "$work/incomplete" "$work/recv/"
 check "push: complete run" 0 env PHOTO_INTAKE_KEY="$key" zsh "$repo/collector/push.sh" "$run" "$work/recv/"
 recv="$work/recv/${run:t}"
-check "verify: intact run passes" 0 python3 -I "$repo/analysis/verify.py" "$recv"
+check "verify: intact run passes" 0 $py -I "$repo/analysis/verify.py" "$recv"
 print x >> "$recv/files.csv"
-check "verify: modified files.csv fails" 1 python3 -I "$repo/analysis/verify.py" "$recv"
+check "verify: modified files.csv fails" 1 $py -I "$repo/analysis/verify.py" "$recv"
 
 print
 if (( fails )); then print "$fails check(s) failed"; exit 1; fi
