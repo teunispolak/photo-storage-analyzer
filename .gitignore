@@ -1,0 +1,21 @@
+# Customer data: never commit
+out/
+runs/
+*.lrcat
+*.lrcat-*
+*.lrdata/
+*.csv
+!analysis/types.csv
+*.duckdb
+*.duckdb.wal
+*.part
+*.log
+
+# Test sample data (generated)
+tests/_work/
+
+# Tooling
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
