@@ -24,10 +24,11 @@ Runs on the client Mac. Requires the [intake setup](intake-setup.md) to be done.
    PHOTO_INTAKE_DEST="intake@<analysis-host>:runs/" ./collector/push.sh ~/photo-analysis/out/<run_id>
    ```
    If the connection drops, run the same command again; it resumes.
-5. On the analysis machine, verify the run:
+5. On the analysis machine, verify and analyse the run:
    ```
-   python3 analysis/verify.py <intake folder>/runs/<run_id>
+   analysis/run.sh <intake folder>/runs/<run_id>
    ```
+   It stops before the join if verification fails.
 6. After verification, the local run folder can be removed. `push.sh` prints the command; nothing is removed automatically.
 
 On first run, macOS asks to allow Terminal access to the removable volume. Allow it.

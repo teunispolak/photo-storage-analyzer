@@ -7,7 +7,8 @@
 set -uo pipefail
 
 repo="${0:A:h:h}"
-work="$repo/tests/_work"
+work="${TEST_WORK:-${TMPDIR:-/tmp}/photo-storage-analyzer-tests}"  # outside the repository
+work="${work:a}"  # absolute, no // (macOS TMPDIR ends in /); symlinks kept
 py="${PYTHON:-python3}"
 collect=($py -I "$repo/collector/collect.py")
 fails=0
@@ -64,6 +65,12 @@ import sys, unicodedata
 t = open(sys.argv[1], encoding='utf-8').read()
 sys.exit(0 if t == unicodedata.normalize('NFC', t) and 'Café.JPG' in t else 1)" "$run/files.csv"
 
+# Scan root through a symlink: paths differ from the catalog's, collector must warn
+ln -s "$d/vol" "$work/vol_link"
+check "collector: warns when scan root does not match catalog root" 0 sh -c \
+  "$py -I '$repo/collector/collect.py' --scan-root '$work/vol_link/Photos' --catalog '$d/lr/Test.lrcat' --out '$work/out_link' 2>&1 | grep -q 'does not overlap'"
+check "collector: no warning when scan root matches" 1 grep -q 'does not overlap' "$run/collector.log"
+
 # macOS only: creation date and hidden flag
 if [[ "$(uname)" == Darwin ]]; then
   check "macOS: btime filled for every row" 0 $py -I -c "
@@ -76,47 +83,52 @@ rows = {r['name']: r for r in csv.DictReader(open(sys.argv[1], encoding='utf-8')
 sys.exit(0 if rows['flagged.jpg']['hidden'] == '1' and rows['root.txt']['hidden'] == '0' else 1)" "$run/files.csv"
 fi
 
-# Load and join (DuckDB), on a copy of the run so the collector output stays as it was
+# Analysis (run.sh: verify, load, join, reports), output outside the run folder
 if ! command -v duckdb > /dev/null; then
   print "FAIL duckdb not found"; (( fails++ ))
 else
-  ana="$work/analysis"; cp -R "$run" "$ana"
-  check "join: load and join run" 0 env -u AI_AGENT -u CLAUDECODE sh -c \
-    "cd '$ana' && duckdb analysis.duckdb -c \"SET VARIABLE types_csv = '$repo/analysis/types.csv'\" -c '.read $repo/analysis/10_load.sql' -c '.read $repo/analysis/20_join.sql'"
-  check "join: join_check.csv written" 0 test -f "$ana/join_check.csv"
+  runsh=(zsh "$repo/analysis/run.sh")
+  ana="$work/ana"
+  before=$(cd "$run" && ls -lR)
+  check "run.sh: complete run" 0 $runsh "$run" --out "$ana"
+  check "run.sh: run folder left unchanged" 0 test "$(cd "$run" && ls -lR)" = "$before"
+  check "run.sh: refuses existing output without --replace" 1 $runsh "$run" --out "$ana"
+  check "run.sh: --replace overwrites" 0 $runsh "$run" --out "$ana" --replace
+  check "run.sh: refuses output inside the run folder" 1 $runsh "$run" --out "$run/x"
+  check "run.sh: refuses output inside the repository" 1 $runsh "$run" --out "$repo/x"
+  check "run.sh: --path-from needs --path-to" 1 $runsh "$run" --out "$work/ana_x" --path-from /a
+  check "run.sh: join_check.csv written" 0 test -f "$ana/join_check.csv"
+  check "run.sh: second run gives identical reports" 0 sh -c "zsh '$repo/analysis/run.sh' '$run' --out '$work/ana2' > /dev/null 2>&1 && diff -r '$ana/reports' '$work/ana2/reports' && diff '$ana/join_check.csv' '$work/ana2/join_check.csv'"
+
   expected=(
     disk_files 9  catalog_masters 4  catalog_sidecars 2  catalog_duplicate_keys 0
     virtual_copies_excluded 1  matched 5  matched_master 3  matched_sidecar 2
     disk_only 4  catalog_only 1  matched_case_only 1  catalog_paths_nfc_changed 1
     catalog_paths_prefix_mapped 0  date_source_catalog 5  date_source_mtime 5  date_source_none 0
   )
-  for metric value in $expected; do
-    check "join: $metric = $value" 0 $py -I -c "
+  metric_is() { $py -I -c "
 import csv, sys
 m = {r['metric']: r['value'] for r in csv.DictReader(open(sys.argv[1]))}
-sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) or 1))" "$ana/join_check.csv" $metric $value
+sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) or 1))" "$@"; }
+  for metric value in $expected; do
+    check "join: $metric = $value" 0 metric_is "$ana/join_check.csv" $metric $value
   done
   q() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$ana/analysis.duckdb" -c "$1"; }
   check "join: JPEG of RAW+JPEG pair is a catalogued sidecar" 0 test "$(q "SELECT catalog_role FROM photos WHERE name = 'IMG_0100.JPG'")" = sidecar
   check "join: raw capture year from catalog" 0 test "$(q "SELECT capture_year || '/' || date_source FROM photos WHERE name = 'IMG_0001.CR2'")" = "2014/catalog"
   check "join: type groups" 0 test "$(q "SELECT string_agg(name || ':' || type_group, ' ' ORDER BY name) FROM photos WHERE name IN ('.DS_Store','IMG_0001.xmp','IMG_0100.NEF','root.txt')")" = ".DS_Store:system IMG_0001.xmp:sidecar IMG_0100.NEF:raw root.txt:other"
-  check "join: prefix mapping" 0 env -u AI_AGENT -u CLAUDECODE sh -c \
-    "cd '$ana' && duckdb mapped.duckdb -c \"SET VARIABLE types_csv = '$repo/analysis/types.csv'\" -c \"SET VARIABLE path_from = '$d/vol/Photos/'\" -c \"SET VARIABLE path_to = '/elsewhere/'\" -c '.read $repo/analysis/10_load.sql' -c '.read $repo/analysis/20_join.sql'"
-  check "join: prefix mapping applied to all catalog paths" 0 $py -I -c "
-import csv, sys
-m = {r['metric']: r['value'] for r in csv.DictReader(open(sys.argv[1]))}
-sys.exit(0 if m['catalog_paths_prefix_mapped'] == '6' and m['matched'] == '0' else 1)" "$ana/join_check.csv"
 
-  # Reports (on the unmapped join)
-  check "reports: rebuild join without mapping" 0 env -u AI_AGENT -u CLAUDECODE sh -c \
-    "cd '$ana' && duckdb analysis.duckdb -c \"SET VARIABLE types_csv = '$repo/analysis/types.csv'\" -c '.read $repo/analysis/10_load.sql' -c '.read $repo/analysis/20_join.sql'"
-  mkdir -p "$ana/reports"
+  check "join: prefix mapping run" 0 $runsh "$run" --out "$work/ana_mapped" --path-from "$d/vol/Photos/" --path-to /elsewhere/
+  check "join: prefix mapping applied to all catalog paths" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_paths_prefix_mapped 6
+  check "join: prefix mapping leaves nothing matched" 0 metric_is "$work/ana_mapped/join_check.csv" matched 0
+  check "join: double slash in --path-from is collapsed" 0 $runsh "$run" --out "$work/ana_slash" --path-from "${d%/*}//${d:t}/vol//Photos/" --path-to /elsewhere/
+  check "join: double slash mapping applied to all catalog paths" 0 metric_is "$work/ana_slash/join_check.csv" catalog_paths_prefix_mapped 6
+
   for r in "$repo"/analysis/reports/*.sql; do
-    check "reports: ${r:t:r} runs" 0 env -u AI_AGENT -u CLAUDECODE sh -c "cd '$ana' && duckdb analysis.duckdb -c '.read $r'"
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
   done
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
-  rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$ana/manifest.json")
+  rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$run/manifest.json")
   check "reports: every report stamped with run_id" 0 test "$(rq "SELECT count(DISTINCT run_id) || '/' || min(run_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
   check "reports: raw = 2 files, 9000 bytes" 0 test "$(rq "SELECT files || '/' || bytes FROM '$ana/reports/volume_by_type.csv' WHERE type_group = 'raw'")" = "2/9000"
   check "reports: by year sums to 9 files" 0 test "$(rq "SELECT sum(files) FROM '$ana/reports/volume_by_year.csv'")" = 9
@@ -136,6 +148,8 @@ recv="$work/recv/${run:t}"
 check "verify: intact run passes" 0 $py -I "$repo/analysis/verify.py" "$recv"
 print x >> "$recv/files.csv"
 check "verify: modified files.csv fails" 1 $py -I "$repo/analysis/verify.py" "$recv"
+check "run.sh: stops when verification fails" 1 zsh "$repo/analysis/run.sh" "$recv" --out "$work/ana_bad"
+check "run.sh: no output after failed verification" 0 test ! -e "$work/ana_bad"
 
 print
 if (( fails )); then print "$fails check(s) failed"; exit 1; fi

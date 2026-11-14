@@ -11,9 +11,6 @@ runs/
 *.part
 *.log
 
-# Test sample data (generated)
-tests/_work/
-
 # Tooling
 __pycache__/
 *.pyc

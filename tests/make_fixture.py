@@ -23,7 +23,9 @@ def main() -> int:
     if len(sys.argv) != 2:
         print("usage: make_fixture.py <work_dir>", file=sys.stderr)
         return 1
-    work = Path(sys.argv[1]).resolve()
+    # Absolute but not resolved: the catalog root must match --scan-root as
+    # the test passes it, also where TMPDIR is a symlink (macOS)
+    work = Path(os.path.abspath(sys.argv[1]))
     if work.exists() and any(work.iterdir()):
         print(f"work dir not empty: {work}", file=sys.stderr)
         return 1

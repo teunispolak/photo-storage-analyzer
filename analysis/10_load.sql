@@ -1,7 +1,7 @@
 -- Load a collector run into DuckDB.
 --
--- Run from inside the run folder (files.csv and catalog.lrcat are read by
--- relative path). Variables, set before .read:
+-- Variables, set before .read:
+--   run_dir     received run folder with files.csv, catalog.lrcat, manifest.json (required)
 --   types_csv   path to analysis/types.csv (required)
 -- Requires a run with a catalog copy (not --skip-catalog).
 --
@@ -11,7 +11,7 @@
 
 CREATE OR REPLACE TABLE run_info AS
 SELECT run_id, cast(replace(finished, 'Z', '') AS TIMESTAMP) AS scan_date
-FROM read_json('manifest.json', columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR'});
+FROM read_json(getvariable('run_dir') || '/manifest.json', columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR'});
 
 CREATE OR REPLACE TABLE scan AS
 SELECT
@@ -29,7 +29,7 @@ SELECT
     hidden   = 1 AS hidden,
     dataless = 1 AS dataless,
     symlink  = 1 AS symlink
-FROM read_csv('files.csv',
+FROM read_csv(getvariable('run_dir') || '/files.csv',
     header = true,
     columns = {
         'path': 'VARCHAR', 'rel_path': 'VARCHAR', 'top_folder': 'VARCHAR',
@@ -47,7 +47,7 @@ FROM read_csv(getvariable('types_csv'), header = true,
 -- Lightroom declares many columns without a type; read everything as text
 -- and cast explicitly.
 SET sqlite_all_varchar = true;
-ATTACH 'catalog.lrcat' AS lr (TYPE sqlite, READ_ONLY);
+ATTACH getvariable('run_dir') || '/catalog.lrcat' AS lr (TYPE sqlite, READ_ONLY);
 
 CREATE OR REPLACE TABLE lr_root AS
 SELECT cast(id_local AS BIGINT) AS id, absolutePath AS absolute_path
