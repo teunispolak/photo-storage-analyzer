@@ -9,6 +9,7 @@ The repository holds the tool only. Customer data (catalog copies, scan output, 
 ```
 collector/collect.py   client Mac: preflight, catalog copy, scan, manifest
 collector/push.sh      client Mac: rsync the run folder to the analysis machine
+analysis/run.sh        analysis machine: verify, load, join, reports in one command
 analysis/verify.py     analysis machine: check a received run against its manifest
 analysis/types.csv     extension to type group mapping
 analysis/10_load.sql   load files.csv and the catalog copy into DuckDB
@@ -27,11 +28,13 @@ python3 collector/collect.py --scan-root "/Volumes/<drive>/<photo root>" --catal
 ./collector/push.sh ~/photo-analysis/out/<run_id> intake@<analysis-host>:runs/
 ```
 
-On the analysis machine:
+On the analysis machine (requires `brew install duckdb`):
 
 ```
-python3 analysis/verify.py <intake folder>/runs/<run_id>
+analysis/run.sh <intake folder>/runs/<run_id>
 ```
+
+This verifies the run, loads and joins it, and writes `analysis.duckdb`, `join_check.csv` and `reports/*.csv` to `~/photo-analysis/analysis/<run_id>/`. Options: `--out`, `--replace`, `--path-from`/`--path-to`; see the header of `analysis/run.sh`.
 
 ## Tests
 
@@ -39,7 +42,7 @@ python3 analysis/verify.py <intake folder>/runs/<run_id>
 zsh tests/run_tests.sh
 ```
 
-Builds sample data in `tests/_work/` (git-ignored) and checks the preflight failure cases, a complete run, push, verify, the DuckDB load and join, and the reports. Requires `duckdb` (`brew install duckdb`). Remove `tests/_work/` before a new run.
+Builds sample data in `$TMPDIR/photo-storage-analyzer-tests` (or `$TEST_WORK`), outside the repository, and checks the preflight failure cases, a complete run, push, verify, the DuckDB load and join, and the reports. Requires `duckdb` (`brew install duckdb`). Remove that folder before a new run.
 
 ## Docs
 

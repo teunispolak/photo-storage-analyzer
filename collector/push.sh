@@ -42,6 +42,6 @@ rsync -rtv --partial --timeout=120 \
   "$run_dir" "$dest"
 
 print "push: transfer finished."
-print "push: on the analysis machine, run: python3 analysis/verify.py <intake>/$(basename "$run_dir")"
+print "push: on the analysis machine, run: analysis/run.sh <intake>/runs/$(basename "$run_dir")"
 print "push: after verification, the local run folder can be removed manually:"
 print "      rm -r \"$run_dir\""

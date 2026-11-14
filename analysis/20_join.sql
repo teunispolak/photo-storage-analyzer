@@ -1,6 +1,6 @@
 -- Join the filesystem scan and the Lightroom catalog into the photos table.
 --
--- Run after 10_load.sql, from inside the run folder. Optional variables:
+-- Run after 10_load.sql, from inside the output folder. Optional variables:
 --   path_from, path_to   replace the prefix path_from with path_to in
 --                        catalog paths, for a volume mounted under another
 --                        name than the catalog expects
