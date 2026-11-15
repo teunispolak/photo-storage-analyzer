@@ -1,12 +1,11 @@
-# Collection runbook
+# Collector runbook
 
-Runs on the client Mac. Requires the [intake setup](intake-setup.md) to be done.
+The collector runs on the client Mac; the analysis on the analysis machine.
 
 ## Prerequisites
 
 - Python 3.9 or newer: `python3 --version`
 - Photo drive mounted
-- SSH key `~/.ssh/photo_intake` installed on the analysis machine
 
 ## Steps
 
@@ -24,17 +23,13 @@ Runs on the client Mac. Requires the [intake setup](intake-setup.md) to be done.
    ```
    Output goes to `~/photo-analysis/out/<run_id>/`; `--out` changes it. The output folder must not be inside the scan root or a Dropbox folder; preflight checks this.
 3. When the log shows `Lightroom may be restarted now`, Lightroom can be reopened. The scan reads metadata only.
-4. Push the run:
-   ```
-   PHOTO_INTAKE_DEST="intake@<analysis-host>:runs/" ./collector/push.sh ~/photo-analysis/out/<run_id>
-   ```
-   If the connection drops, run the same command again; it resumes.
+4. Transfer the run folder `~/photo-analysis/out/<run_id>/` to the analysis machine.
 5. On the analysis machine, verify and analyse the run:
    ```
-   analysis/run.sh <intake folder>/runs/<run_id>
+   analysis/run.sh <received run folder>
    ```
-   It stops before the join if verification fails.
-6. After verification, the local run folder can be removed. `push.sh` prints the command; nothing is removed automatically.
+   It stops before the join if verification fails, for example after an incomplete transfer.
+6. After verification, the run folder on the client Mac can be removed. Nothing is removed automatically.
 
 On first run, macOS asks to allow Terminal access to the removable volume. Allow it.
 
@@ -52,7 +47,7 @@ On first run, macOS asks to allow Terminal access to the removable volume. Allow
 |---|---|
 | 0 | complete |
 | 1 | preflight failed; nothing written |
-| 2 | run failed; no manifest, the run folder is incomplete and `push.sh` refuses it |
+| 2 | run failed; no manifest, the run folder is incomplete and `run.sh` refuses it |
 
 ## Output
 
