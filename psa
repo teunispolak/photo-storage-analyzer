@@ -1,0 +1,108 @@
+#!/bin/zsh
+# psa - run a photo-storage-analyzer script after checking for updates.
+#
+# Usage:
+#   ./psa check-catalog <catalog.lrcat> [--show-roots]
+#   ./psa collect --scan-root <folder> --catalog <catalog.lrcat> [options]
+#   ./psa analyse <run folder> [options]
+#   ./psa status
+#
+# Before each command, the local copy of the repository is compared with
+# GitHub (origin/main). On a clean main that is behind, it is updated with
+# git pull --ff-only and the command restarts. In every other case
+# (no network, local changes, another branch, ahead or diverged, not a git
+# checkout) it warns and runs the script as it is. The result is passed to the
+# script in PSA_UPDATE_STATUS and PSA_UPDATE_DETAIL; the collector records it
+# in the manifest.
+
+set -uo pipefail
+
+repo="${0:A:h}"
+self="${0:A}"
+py="${PYTHON:-python3}"
+
+usage() {
+  sed -n '3,8p' "$self" | sed 's/^# \{0,1\}//'
+}
+
+note() { print -u2 "psa: $*"; }
+
+git_repo() { git -C "$repo" "$@"; }
+
+short() { git_repo rev-parse --short "$1" 2>/dev/null || print -- "$1"; }
+
+# Sets upd_status and upd_detail (zsh reserves the name "status")
+update_check() {
+  upd_status="" upd_detail=""
+  if [[ -n "${PSA_RESTARTED:-}" ]]; then
+    upd_status=updated upd_detail="$PSA_RESTARTED"; return
+  fi
+  if ! command -v git > /dev/null; then
+    upd_status=no_git upd_detail="git not installed"; return
+  fi
+  if ! git_repo rev-parse --git-dir > /dev/null 2>&1; then
+    upd_status=not_a_checkout upd_detail="$repo is not a git checkout"; return
+  fi
+  if ! GIT_TERMINAL_PROMPT=0 git_repo -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 \
+       fetch --quiet origin main 2> /dev/null; then
+    upd_status=offline upd_detail="could not reach origin"; return
+  fi
+
+  local branch head remote
+  branch=$(git_repo symbolic-ref --quiet --short HEAD 2> /dev/null) || branch="(detached)"
+  head=$(git_repo rev-parse HEAD)
+  remote=$(git_repo rev-parse FETCH_HEAD)
+
+  if [[ "$branch" != main ]]; then
+    upd_status=other_branch upd_detail="on $branch"; return
+  fi
+  if [[ -n "$(git_repo status --porcelain --untracked-files=no)" ]]; then
+    upd_status=local_changes upd_detail="uncommitted changes to tracked files"; return
+  fi
+  if [[ "$head" == "$remote" ]]; then
+    upd_status=up_to_date upd_detail="$(short $head)"; return
+  fi
+  if git_repo merge-base --is-ancestor "$remote" "$head"; then
+    upd_status=ahead upd_detail="local commits not on origin/main"; return
+  fi
+  if ! git_repo merge-base --is-ancestor "$head" "$remote"; then
+    upd_status=diverged upd_detail="local and origin/main have both moved"; return
+  fi
+
+  # Behind on a clean main: update and restart once with the same arguments
+  if git_repo pull --quiet --ff-only origin main 2> /dev/null; then
+    note "updated $(short $head)..$(short $remote); restarting"
+    PSA_RESTARTED="$(short $head)..$(short $remote)" exec zsh "$self" "$@"
+  fi
+  upd_status=pull_failed upd_detail="git pull --ff-only failed"
+}
+
+report() {
+  case "$upd_status" in
+    up_to_date) note "up to date ($upd_detail)" ;;
+    updated)    note "updated ($upd_detail)" ;;
+    *)          note "warning: not updated: $upd_status ($upd_detail); running the scripts as they are" ;;
+  esac
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  check-catalog|collect|analyse|status) shift ;;
+  ""|-h|--help|help) usage; exit 0 ;;
+  *) note "unknown command: $cmd"; usage; exit 1 ;;
+esac
+
+update_check "$cmd" "$@"
+report
+export PSA_UPDATE_STATUS="$upd_status" PSA_UPDATE_DETAIL="$upd_detail"
+
+case "$cmd" in
+  status)
+    print "status: $upd_status"
+    print "detail: $upd_detail"
+    print "commit: $(git_repo rev-parse HEAD 2> /dev/null || print unknown)"
+    ;;
+  check-catalog) exec $py -I "$repo/collector/check_catalog.py" "$@" ;;
+  collect)       exec $py -I "$repo/collector/collect.py" "$@" ;;
+  analyse)       exec zsh "$repo/analysis/run.sh" "$@" ;;
+esac

@@ -432,6 +432,11 @@ def main(argv=None) -> int:
                 "version": COLLECTOR_VERSION,
                 "git_commit": git_commit(script.parent),
                 "script_sha256": sha256_file(script),
+                # set by ./psa; absent when the collector is called directly
+                "update_check": {
+                    "status": os.environ.get("PSA_UPDATE_STATUS", "not_run"),
+                    "detail": os.environ.get("PSA_UPDATE_DETAIL", "collector called without ./psa"),
+                },
             },
             "host": {
                 "name": host,

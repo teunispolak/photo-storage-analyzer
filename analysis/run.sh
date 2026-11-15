@@ -52,6 +52,13 @@ python3 -I "$repo/analysis/verify.py" "$run_dir" || die "verification failed, st
 [[ -f "$run_dir/catalog.lrcat" ]] || die "run has no catalog copy (collected with --skip-catalog); the join needs one"
 
 run_id=$(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$run_dir/manifest.json")
+
+# Warn when the run was collected with another commit than the one running now
+collected=$(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['collector'].get('git_commit', 'unknown'))" "$run_dir/manifest.json")
+current=$(git -C "$repo" rev-parse HEAD 2> /dev/null || print unknown)
+if [[ "$collected" != "$current" ]]; then
+  print -u2 "run: warning: run collected with commit ${collected:0:7}, analysis runs on ${current:0:7}"
+fi
 out="${out:-$HOME/photo-analysis/analysis/$run_id}"
 out="${out:A}"
 
