@@ -453,7 +453,7 @@ def main(argv=None) -> int:
         return 2
 
     log.info("Run complete: %s", run_dir)
-    log.info("Next: ./push.sh %s", run_dir)
+    log.info("Next: transfer this folder to the analysis machine: %s", run_dir)
     return 0
 
 

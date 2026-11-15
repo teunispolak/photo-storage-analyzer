@@ -10,33 +10,20 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.runner }} / rsync ${{ matrix.rsync }} / ${{ matrix.python }}
+    name: ${{ matrix.runner }} / ${{ matrix.python }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-15
-            rsync: system
             python: /usr/bin/python3
           - runner: macos-26
-            rsync: system
             python: /usr/bin/python3
           - runner: macos-26
-            rsync: homebrew
             python: python3
     steps:
       - uses: actions/checkout@v5
-
-      - name: Use system rsync
-        if: matrix.rsync == 'system'
-        run: echo "/usr/bin" >> "$GITHUB_PATH"
-
-      - name: Install Homebrew rsync
-        if: matrix.rsync == 'homebrew'
-        run: |
-          brew install rsync
-          echo "$(brew --prefix rsync)/bin" >> "$GITHUB_PATH"
 
       - name: Install DuckDB
         run: brew install duckdb

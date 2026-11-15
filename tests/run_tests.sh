@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Run collector, push and verify against generated sample data.
+# Run collector, verify and analysis against generated sample data.
 # Usage: tests/run_tests.sh      (from the repository root)
 #   PYTHON=/usr/bin/python3 tests/run_tests.sh   to test a specific interpreter
 # Exit 0 if all checks pass.
@@ -14,7 +14,6 @@ collect=($py -I "$repo/collector/collect.py")
 fails=0
 
 print "python: $(command -v $py) $($py --version 2>&1)"
-print "rsync:  $(command -v rsync) $(rsync --version 2>&1 | head -1)"
 print "duckdb: $(command -v duckdb) $(env -u AI_AGENT -u CLAUDECODE duckdb --version 2>&1)"
 print
 
@@ -165,12 +164,12 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "reports: missing from disk = GONE.DNG" 0 test "$(rq "SELECT string_agg(regexp_extract(path, '[^/]+\$'), ',') FROM '$ana/reports/missing_from_disk.csv'")" = GONE.DNG
 fi
 
-# Push and verify
-key="$work/key"; touch "$key"
-mkdir -p "$work/incomplete" "$work/recv"; touch "$work/incomplete/files.csv"
-check "push: refuses run without manifest" 1 env PHOTO_INTAKE_KEY="$key" zsh "$repo/collector/push.sh" "$work/incomplete" "$work/recv/"
-check "push: complete run" 0 env PHOTO_INTAKE_KEY="$key" zsh "$repo/collector/push.sh" "$run" "$work/recv/"
+# Transfer (a plain copy) and verify
+mkdir -p "$work/recv" "$work/incomplete"; touch "$work/incomplete/files.csv"
+cp -R "$run" "$work/recv/"
 recv="$work/recv/${run:t}"
+check "run.sh: refuses a folder without manifest" 1 zsh "$repo/analysis/run.sh" "$work/incomplete" --out "$work/ana_incomplete"
+check "run.sh: analyses a copied run folder" 0 zsh "$repo/analysis/run.sh" "$recv" --out "$work/ana_recv"
 check "verify: intact run passes" 0 $py -I "$repo/analysis/verify.py" "$recv"
 print x >> "$recv/files.csv"
 check "verify: modified files.csv fails" 1 $py -I "$repo/analysis/verify.py" "$recv"

@@ -8,7 +8,6 @@ The repository holds the tool only. Customer data (catalog copies, scan output, 
 
 ```
 collector/collect.py   client Mac: preflight, catalog copy, scan, manifest
-collector/push.sh      client Mac: rsync the run folder to the analysis machine
 collector/check_catalog.py  check a catalog has the structure the analysis needs
 analysis/run.sh        analysis machine: verify, load, join, reports in one command
 analysis/verify.py     analysis machine: check a received run against its manifest
@@ -26,13 +25,12 @@ On the client Mac, with Lightroom closed:
 
 ```
 python3 collector/collect.py --scan-root "/Volumes/<drive>/<photo root>" --catalog "<path>.lrcat"
-./collector/push.sh ~/photo-analysis/out/<run_id> intake@<analysis-host>:runs/
 ```
 
 On the analysis machine (requires `brew install duckdb`):
 
 ```
-analysis/run.sh <intake folder>/runs/<run_id>
+analysis/run.sh <received run folder>
 ```
 
 This verifies the run, loads and joins it, and writes `analysis.duckdb`, `join_check.csv` and `reports/*.csv` to `~/photo-analysis/analysis/<run_id>/`. Options: `--out`, `--replace`, `--path-from`/`--path-to`; see the header of `analysis/run.sh`.
@@ -43,9 +41,8 @@ This verifies the run, loads and joins it, and writes `analysis.duckdb`, `join_c
 zsh tests/run_tests.sh
 ```
 
-Builds sample data in `$TMPDIR/photo-storage-analyzer-tests` (or `$TEST_WORK`), outside the repository, and checks the preflight failure cases, a complete run, push, verify, the DuckDB load and join, and the reports. Requires `duckdb` (`brew install duckdb`). Remove that folder before a new run.
+Builds sample data in `$TMPDIR/photo-storage-analyzer-tests` (or `$TEST_WORK`), outside the repository, and checks the preflight failure cases, a complete run, verify, the DuckDB load and join, and the reports. Requires `duckdb` (`brew install duckdb`). Remove that folder before a new run.
 
 ## Docs
 
-- [Collection runbook](docs/collection.md): running the collector and push on the client Mac
-- [Intake setup](docs/intake-setup.md): one-time setup of the analysis machine and client key, and teardown
+- [Collection runbook](docs/collection.md): running the collector on the client Mac and the analysis on the analysis machine
