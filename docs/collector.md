@@ -1,6 +1,6 @@
 # Collector runbook
 
-The collector runs on the client Mac; the analysis on the analysis machine.
+Runs on the client Mac. Produces a run folder for the [analysis runbook](analysis.md).
 
 ## Prerequisites
 
@@ -25,12 +25,7 @@ The collector runs on the client Mac; the analysis on the analysis machine.
    Output goes to `~/photo-analysis/out/<run_id>/`; `--out` changes it. The output folder must not be inside the scan root or a Dropbox folder; preflight checks this.
 3. When the log shows `Lightroom may be restarted now`, Lightroom can be reopened. The scan reads metadata only.
 4. Transfer the run folder `~/photo-analysis/out/<run_id>/` to the analysis machine.
-5. On the analysis machine, verify and analyse the run:
-   ```
-   ./psa analyse <received run folder>
-   ```
-   It stops before the join if verification fails, for example after an incomplete transfer.
-6. After verification, the run folder on the client Mac can be removed. Nothing is removed automatically.
+5. After the analysis has verified the received run folder, the run folder on the client Mac can be removed. Nothing is removed automatically.
 
 On first run, macOS asks to allow Terminal access to the removable volume. Allow it.
 
@@ -50,7 +45,7 @@ Each `./psa` command first checks the repository against GitHub and updates it i
 |---|---|
 | 0 | complete |
 | 1 | preflight failed; nothing written |
-| 2 | run failed; no manifest, the run folder is incomplete and `run.sh` refuses it |
+| 2 | run failed; no manifest, the run folder is incomplete and the analysis refuses it |
 
 ## Output
 

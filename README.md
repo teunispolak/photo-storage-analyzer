@@ -39,4 +39,5 @@ Builds sample data in `$TMPDIR/photo-storage-analyzer-tests` (or `$TEST_WORK`), 
 
 ## Docs
 
-- [Collector runbook](docs/collector.md): running the collector on the client Mac and the analysis on the analysis machine
+- [Collector runbook](docs/collector.md): collecting on the client Mac
+- [Analysis runbook](docs/analysis.md): analysing the received run on the analysis machine
