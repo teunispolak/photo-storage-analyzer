@@ -9,6 +9,7 @@ The repository holds the tool only. Customer data (catalog copies, scan output, 
 ```
 collector/collect.py   client Mac: preflight, catalog copy, scan, manifest
 collector/push.sh      client Mac: rsync the run folder to the analysis machine
+collector/check_catalog.py  check a catalog has the structure the analysis needs
 analysis/run.sh        analysis machine: verify, load, join, reports in one command
 analysis/verify.py     analysis machine: check a received run against its manifest
 analysis/types.csv     extension to type group mapping

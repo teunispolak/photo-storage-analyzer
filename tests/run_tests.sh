@@ -38,6 +38,15 @@ $py -I "$repo/tests/make_fixture.py" "$work/data" > /dev/null || exit 1
 d="$work/data"
 args=(--scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat")
 
+# Catalog structure check
+chk=($py -I "$repo/collector/check_catalog.py")
+check "check_catalog: test catalog has the required structure" 0 $chk "$d/lr/Test.lrcat"
+check "check_catalog: counts the virtual copy" 0 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' | grep -q 'virtual copies: 1'"
+check "check_catalog: --show-roots prints the root folder" 0 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' --show-roots | grep -qF '$d/vol/Photos/'"
+check "check_catalog: no root paths without --show-roots" 1 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' | grep -qF '$d/vol/Photos/'"
+$py -I -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('CREATE TABLE AgLibraryRootFolder (id_local, absolutePath)'); c.commit()" "$work/broken.lrcat"
+check "check_catalog: fails on a catalog missing tables" 1 $chk "$work/broken.lrcat"
+
 # Preflight failures
 check "preflight: output inside scan root" 1 $collect $args --out "$d/vol/Photos/out"
 check "preflight: output inside Dropbox folder" 1 $collect $args --out "$d/vol/x" --dropbox-root "$d/vol"
@@ -123,6 +132,23 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "join: prefix mapping leaves nothing matched" 0 metric_is "$work/ana_mapped/join_check.csv" matched 0
   check "join: double slash in --path-from is collapsed" 0 $runsh "$run" --out "$work/ana_slash" --path-from "${d%/*}//${d:t}/vol//Photos/" --path-to /elsewhere/
   check "join: double slash mapping applied to all catalog paths" 0 metric_is "$work/ana_slash/join_check.csv" catalog_paths_prefix_mapped 6
+
+  # Required catalog columns (check_catalog.py) are exactly what the load needs
+  variants="$work/variants"
+  cols=("${(@f)$($py -I "$repo/tests/catalog_variants.py" "$d/lr/Test.lrcat" "$repo/collector/check_catalog.py" "$variants")}")
+  load_with() {  # load_with <catalog> <out_dir>: load and join a run copy that uses <catalog>
+    local rc="$2/run"; mkdir -p "$rc"
+    cp "$run/files.csv" "$run/manifest.json" "$rc/"; cp "$1" "$rc/catalog.lrcat"
+    (cd "$2" && env -u AI_AGENT -u CLAUDECODE duckdb -bail analysis.duckdb \
+      -c "SET VARIABLE run_dir = '$rc'" -c "SET VARIABLE types_csv = '$repo/analysis/types.csv'" \
+      -c ".read $repo/analysis/10_load.sql" -c ".read $repo/analysis/20_join.sql") > /dev/null 2>&1
+  }
+  check "catalog columns: minimal catalog loads" 0 load_with "$variants/minimal.lrcat" "$variants/minimal"
+  check "catalog columns: minimal catalog gives the same join" 0 diff "$ana/join_check.csv" "$variants/minimal/join_check.csv"
+  check "catalog columns: one variant per required column" 0 test ${#cols} -eq 17
+  for c in $cols; do
+    check "catalog columns: load fails ${c%.lrcat}" 1 load_with "$variants/$c" "$variants/${c%.lrcat}"
+  done
 
   for r in "$repo"/analysis/reports/*.sql; do
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"

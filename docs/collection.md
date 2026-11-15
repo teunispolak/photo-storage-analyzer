@@ -11,6 +11,11 @@ Runs on the client Mac. Requires the [intake setup](intake-setup.md) to be done.
 ## Steps
 
 1. Close Lightroom Classic.
+   Optional, recommended on a new client: check the catalog's structure and see its root folders:
+   ```
+   python3 collector/check_catalog.py "$HOME/Pictures/Lightroom/<name>.lrcat" --show-roots
+   ```
+   Exit 1 means the catalog lacks tables or columns the join needs; stop and report it. The root folder that holds the photos is the value for `--scan-root`.
 2. Run the collector:
    ```
    python3 collector/collect.py \
