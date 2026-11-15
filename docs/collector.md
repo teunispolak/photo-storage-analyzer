@@ -1,4 +1,4 @@
-# Collection runbook
+# Collector runbook
 
 The collector runs on the client Mac; the analysis on the analysis machine.
 

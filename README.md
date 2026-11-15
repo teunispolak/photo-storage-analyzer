@@ -4,21 +4,6 @@ Collects file and Lightroom Classic catalog data on a client's Mac and analyses 
 
 The repository holds the tool only. Customer data (catalog copies, scan output, reports) stays outside it; `.gitignore` enforces this.
 
-## Layout
-
-```
-collector/collect.py   client Mac: preflight, catalog copy, scan, manifest
-collector/check_catalog.py  check a catalog has the structure the analysis needs
-analysis/run.sh        analysis machine: verify, load, join, reports in one command
-analysis/verify.py     analysis machine: check a received run against its manifest
-analysis/types.csv     extension to type group mapping
-analysis/10_load.sql   load files.csv and the catalog copy into DuckDB
-analysis/20_join.sql   join into the photos table, write join_check.csv
-analysis/reports/      one SQL file per report, each writes reports/<name>.csv
-tests/                 sample data builder and test script
-docs/                  runbooks
-```
-
 ## Quick start
 
 On the client Mac, with Lightroom closed:
@@ -45,4 +30,4 @@ Builds sample data in `$TMPDIR/photo-storage-analyzer-tests` (or `$TEST_WORK`), 
 
 ## Docs
 
-- [Collection runbook](docs/collection.md): running the collector on the client Mac and the analysis on the analysis machine
+- [Collector runbook](docs/collector.md): running the collector on the client Mac and the analysis on the analysis machine
