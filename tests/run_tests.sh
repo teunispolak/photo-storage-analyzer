@@ -176,6 +176,58 @@ check "verify: modified files.csv fails" 1 $py -I "$repo/analysis/verify.py" "$r
 check "run.sh: stops when verification fails" 1 zsh "$repo/analysis/run.sh" "$recv" --out "$work/ana_bad"
 check "run.sh: no output after failed verification" 0 test ! -e "$work/ana_bad"
 
+# Update check (./psa), against a local stand-in for GitHub
+G=(git -c user.name=test -c user.email=test@example.invalid -c advice.detachedHead=false -c push.negotiate=false)
+up="$work/upd"; mkdir -p "$up"
+cp -R "$repo" "$up/dev"; rm -rf "$up/dev/.git"
+$G -C "$up/dev" init -q -b main && $G -C "$up/dev" add -A && $G -C "$up/dev" commit -q -m base
+git init -q --bare -b main "$up/origin.git"
+$G -C "$up/dev" remote add origin "$up/origin.git" && $G -C "$up/dev" push -q origin main
+git clone -q "$up/origin.git" "$up/client"
+cl="$up/client"
+st() { zsh "$cl/psa" status 2> /dev/null | sed -n 's/^status: //p'; }
+publish() { print "$1" >> "$up/dev/CHANGES"; $G -C "$up/dev" add CHANGES; $G -C "$up/dev" commit -q -m "$1"; $G -C "$up/dev" push -q origin main; }
+same_head() { test "$(git -C "$cl" rev-parse HEAD)" = "$(git -C "$up/dev" rev-parse HEAD)"; }
+
+check "psa: help exits 0" 0 zsh "$cl/psa" help
+check "psa: unknown command exits 1" 1 zsh "$cl/psa" nonsense
+check "psa: up to date" 0 test "$(st)" = up_to_date
+publish c1
+check "psa: behind on clean main is updated and restarted" 0 test "$(st)" = updated
+check "psa: update brings HEAD to origin/main" 0 same_head
+print 'print "marker: new psa"' >> "$up/dev/psa"; $G -C "$up/dev" commit -q -am "psa change"; $G -C "$up/dev" push -q origin main
+check "psa: after an update, the new psa continues the run" 0 sh -c "zsh '$cl/psa' status 2>/dev/null | grep -q 'marker: new psa'"
+print change >> "$cl/README.md"; publish c2
+check "psa: local changes are not updated" 0 test "$(st)" = local_changes
+check "psa: local changes leave HEAD as it was" 1 same_head
+git -C "$cl" checkout -q -- README.md
+check "psa: clean again, behind, is updated" 0 test "$(st)" = updated
+git -C "$cl" checkout -q -b feature
+check "psa: another branch is not updated" 0 test "$(st)" = other_branch
+git -C "$cl" checkout -q main; git -C "$cl" checkout -q --detach
+check "psa: detached HEAD is not updated" 0 test "$(st)" = other_branch
+git -C "$cl" checkout -q main
+print local >> "$cl/LOCAL"; $G -C "$cl" add LOCAL; $G -C "$cl" commit -q -m local
+check "psa: ahead of origin is not updated" 0 test "$(st)" = ahead
+publish c3
+check "psa: diverged is not updated" 0 test "$(st)" = diverged
+git -C "$cl" reset -q --hard origin/main
+git -C "$cl" remote set-url origin "$up/nowhere.git"
+check "psa: no network is a warning, not a stop" 0 test "$(st)" = offline
+check "psa: warning names the reason" 0 sh -c "zsh '$cl/psa' status 2>&1 | grep -q 'warning: not updated: offline'"
+git -C "$cl" remote set-url origin "$up/origin.git"
+cp -R "$cl" "$up/nogit"; rm -rf "$up/nogit/.git"
+check "psa: not a git checkout is a warning" 0 test "$(zsh "$up/nogit/psa" status 2> /dev/null | sed -n 's/^status: //p')" = not_a_checkout
+
+# Update check result in the manifest, and the commit warning in analyse
+check "psa: collect runs" 0 zsh "$cl/psa" collect --scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat" --out "$up/out"
+prun=("$up"/out/*(/N)); prun="${prun[1]:-$up/out/none}"
+uc() { $py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['collector']['update_check']['status'])" "$1/manifest.json"; }
+check "manifest: update check recorded by psa" 0 test "$(uc "$prun")" = up_to_date
+check "manifest: direct call records not_run" 0 test "$(uc "$run")" = not_run
+check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'run collected with commit'"
+check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'run collected with commit'"
+
 print
 if (( fails )); then print "$fails check(s) failed"; exit 1; fi
 print "all checks passed (sample data kept in $work)"

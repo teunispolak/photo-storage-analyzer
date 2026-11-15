@@ -6,19 +6,28 @@ The repository holds the tool only. Customer data (catalog copies, scan output, 
 
 ## Quick start
 
+Get the repository on both machines:
+
+```
+git clone https://github.com/teunispolak/photo-storage-analyzer
+cd photo-storage-analyzer
+```
+
 On the client Mac, with Lightroom closed:
 
 ```
-python3 collector/collect.py --scan-root "/Volumes/<drive>/<photo root>" --catalog "<path>.lrcat"
+./psa collect --scan-root "/Volumes/<drive>/<photo root>" --catalog "<path>.lrcat"
 ```
 
 On the analysis machine (requires `brew install duckdb`):
 
 ```
-analysis/run.sh <received run folder>
+./psa analyse <received run folder>
 ```
 
-This verifies the run, loads and joins it, and writes `analysis.duckdb`, `join_check.csv` and `reports/*.csv` to `~/photo-analysis/analysis/<run_id>/`. Options: `--out`, `--replace`, `--path-from`/`--path-to`; see the header of `analysis/run.sh`.
+`./psa` first checks the repository against GitHub and updates it if it is behind, then runs the script. If it cannot update (no network, local changes, another branch), it warns and runs the scripts as they are. `./psa status` shows the result without running anything.
+
+This verifies the run, loads and joins it, and writes `analysis.duckdb`, `join_check.csv` and `reports/*.csv` to `~/photo-analysis/analysis/<run_id>/`. Options: `--out`, `--replace`, `--path-from`/`--path-to`; see the header of `analysis/run.sh`. Commands: see the header of `psa`.
 
 ## Tests
 

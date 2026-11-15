@@ -4,7 +4,8 @@ The collector runs on the client Mac; the analysis on the analysis machine.
 
 ## Prerequisites
 
-- Python 3.9 or newer: `python3 --version`
+- Python 3.9 or newer and git: `python3 --version`, `git --version` (both come with the Command Line Tools; macOS offers to install them on first use)
+- The repository: `git clone https://github.com/teunispolak/photo-storage-analyzer`, run the commands below from inside it
 - Photo drive mounted
 
 ## Steps
@@ -12,12 +13,12 @@ The collector runs on the client Mac; the analysis on the analysis machine.
 1. Close Lightroom Classic.
    Optional, recommended on a new client: check the catalog's structure and see its root folders:
    ```
-   python3 collector/check_catalog.py "$HOME/Pictures/Lightroom/<name>.lrcat" --show-roots
+   ./psa check-catalog "$HOME/Pictures/Lightroom/<name>.lrcat" --show-roots
    ```
    Exit 1 means the catalog lacks tables or columns the join needs; stop and report it. The root folder that holds the photos is the value for `--scan-root`.
 2. Run the collector:
    ```
-   python3 collector/collect.py \
+   ./psa collect \
      --scan-root "/Volumes/<drive>/<photo root>" \
      --catalog "$HOME/Pictures/Lightroom/<name>.lrcat"
    ```
@@ -26,12 +27,14 @@ The collector runs on the client Mac; the analysis on the analysis machine.
 4. Transfer the run folder `~/photo-analysis/out/<run_id>/` to the analysis machine.
 5. On the analysis machine, verify and analyse the run:
    ```
-   analysis/run.sh <received run folder>
+   ./psa analyse <received run folder>
    ```
    It stops before the join if verification fails, for example after an incomplete transfer.
 6. After verification, the run folder on the client Mac can be removed. Nothing is removed automatically.
 
 On first run, macOS asks to allow Terminal access to the removable volume. Allow it.
+
+Each `./psa` command first checks the repository against GitHub and updates it if it is behind. A warning such as `not updated: offline` means the scripts run as they are; the manifest records the result.
 
 ## Options
 
