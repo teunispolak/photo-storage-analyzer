@@ -9,9 +9,14 @@
 -- The catalog is copied into local tables and detached, so later queries do
 -- not need the catalog file.
 
+-- scan_date: the client's local time with UTC offset, as text, so it reads the
+-- same on any analysis machine. Older manifests have only the UTC time.
 CREATE OR REPLACE TABLE run_info AS
-SELECT run_id, cast(replace(finished, 'Z', '') AS TIMESTAMP) AS scan_date
-FROM read_json(getvariable('run_dir') || '/manifest.json', columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR'});
+SELECT run_id,
+       coalesce(replace(finished_local, 'T', ' '),
+                replace(replace(finished, 'T', ' '), 'Z', '+00:00')) AS scan_date
+FROM read_json(getvariable('run_dir') || '/manifest.json',
+               columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR', 'finished_local': 'VARCHAR'});
 
 CREATE OR REPLACE TABLE scan AS
 SELECT

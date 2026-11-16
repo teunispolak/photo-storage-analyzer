@@ -164,6 +164,24 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "reports: missing from disk = GONE.DNG" 0 test "$(rq "SELECT string_agg(regexp_extract(path, '[^/]+\$'), ',') FROM '$ana/reports/missing_from_disk.csv'")" = GONE.DNG
 fi
 
+# Scan date: client's local time with UTC offset (fixed zone without DST: +05:30)
+check "scan date: collector run in another time zone" 0 env TZ=Asia/Kolkata $collect $args --out "$work/out_tz"
+tzrun=("$work"/out_tz/*(/N)); tzrun="${tzrun[1]:-$work/out_tz/none}"
+check "scan date: manifest has local time with offset, same moment as finished" 0 $py -I -c "
+import json, sys, datetime as dt
+m = json.load(open(sys.argv[1]))
+loc = dt.datetime.fromisoformat(m['finished_local'])
+utc = dt.datetime.strptime(m['finished'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
+sys.exit(0 if m['finished_local'].endswith('+05:30') and loc == utc else 1)" "$tzrun/manifest.json"
+check "scan date: analysis of that run" 0 zsh "$repo/analysis/run.sh" "$tzrun" --out "$work/ana_tz"
+check "scan date: reports show local time with offset" 0 test "$(env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "SELECT count(*) FILTER (WHERE NOT scan_date LIKE '% %:%:%+05:30') || '/' || count(*) FROM read_csv('$work/ana_tz/reports/*.csv', union_by_name = true, all_varchar = true)" | cut -d/ -f1)" = 0
+cp -R "$tzrun" "$work/old_manifest"
+$py -I -c "
+import json, sys
+p = sys.argv[1]; m = json.load(open(p)); m.pop('finished_local'); json.dump(m, open(p, 'w'))" "$work/old_manifest/manifest.json"
+check "scan date: older manifest analyses" 0 zsh "$repo/analysis/run.sh" "$work/old_manifest" --out "$work/ana_old"
+check "scan date: older manifest falls back to UTC with +00:00" 0 test "$(env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "SELECT DISTINCT scan_date FROM read_csv('$work/ana_old/reports/volume_by_type.csv', all_varchar = true)")" = "$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['finished'].replace('T',' ').replace('Z','+00:00'))" "$work/old_manifest/manifest.json")"
+
 # Transfer (a plain copy) and verify
 mkdir -p "$work/recv" "$work/incomplete"; touch "$work/incomplete/files.csv"
 cp -R "$run" "$work/recv/"

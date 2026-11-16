@@ -91,6 +91,11 @@ def now_iso() -> str:
     return utc_iso(time.time())
 
 
+def local_iso(ts: float) -> str:
+    """Local time of this Mac with its UTC offset, e.g. 2026-11-16T11:22:08+01:00."""
+    return dt.datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -422,12 +427,14 @@ def main(argv=None) -> int:
 
         files = scan(args.scan_root, run_dir)
 
+        finished_ts = time.time()
         manifest = {
             "schema": MANIFEST_SCHEMA,
             "run_id": run_id,
             "status": "complete",
             "started": started,
-            "finished": now_iso(),
+            "finished": utc_iso(finished_ts),
+            "finished_local": local_iso(finished_ts),  # same moment, client's clock
             "collector": {
                 "version": COLLECTOR_VERSION,
                 "git_commit": git_commit(script.parent),
