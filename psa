@@ -5,6 +5,7 @@
 #   ./psa check-catalog <catalog.lrcat> [--show-roots]
 #   ./psa collect --scan-root <folder> --catalog <catalog.lrcat> [options]
 #   ./psa analyse <run folder> [options]
+#   ./psa regress [--refresh]
 #   ./psa status
 #
 # Before each command, the local copy of the repository is compared with
@@ -22,7 +23,7 @@ self="${0:A}"
 py="${PYTHON:-python3}"
 
 usage() {
-  sed -n '3,8p' "$self" | sed 's/^# \{0,1\}//'
+  sed -n '3,9p' "$self" | sed 's/^# \{0,1\}//'
 }
 
 note() { print -u2 "psa: $*"; }
@@ -87,7 +88,7 @@ report() {
 
 cmd="${1:-}"
 case "$cmd" in
-  check-catalog|collect|analyse|status) shift ;;
+  check-catalog|collect|analyse|regress|status) shift ;;
   ""|-h|--help|help) usage; exit 0 ;;
   *) note "unknown command: $cmd"; usage; exit 1 ;;
 esac
@@ -105,4 +106,5 @@ case "$cmd" in
   check-catalog) exec $py -I "$repo/collector/check_catalog.py" "$@" ;;
   collect)       exec $py -I "$repo/collector/collect.py" "$@" ;;
   analyse)       exec zsh "$repo/analysis/run.sh" "$@" ;;
+  regress)       exec zsh "$repo/analysis/regress.sh" "$@" ;;
 esac

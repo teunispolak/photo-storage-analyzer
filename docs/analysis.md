@@ -80,6 +80,32 @@ Example, files on disk that Lightroom does not know:
 
 `hint` = `moved?`: Lightroom knows a file with that name at `catalog_folder` (Find Missing Folder in Lightroom). `dng original?`: the raw original next to its DNG. Empty: not imported.
 
+## Regression check
+
+After a change to the tool, check whether the analysis results changed:
+
+```
+./psa regress
+```
+
+It analyses the baseline run again into a temporary folder and compares the result with the stored baseline analysis: each report, `join_check.csv`, and the contents of `photos_pivot.xlsx` when the baseline has one. Differences are shown, and the last line is the verdict:
+
+| Verdict | Exit |
+|---|---|
+| `regression: no differences` | 0 |
+| `regression: differences in <outputs>` | 1 |
+| `regression: could not run: <reason>` | 2 |
+
+The baseline is `~/photo-analysis/baseline/` with `run/` (a collected run folder, never changed) and `analysis/` (its analysis); `PSA_BASELINE` sets another location.
+
+When a change is meant to alter the results, review the differences, then:
+
+```
+./psa regress --refresh
+```
+
+It asks for confirmation, keeps the previous analysis as `analysis.<timestamp>`, and replaces `baseline/analysis` with the new output. `baseline/run` is never touched.
+
 ## Reports
 
 | Report | Content |

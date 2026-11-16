@@ -1,0 +1,95 @@
+#!/bin/zsh
+# Regression check: analyse the baseline run again and compare with the
+# stored baseline analysis.
+#
+# Usage:
+#   analysis/regress.sh [--refresh]
+#
+#   --refresh   after the comparison, replace baseline/analysis with the new
+#               output; asks for confirmation; the previous analysis is kept
+#               as analysis.<timestamp>; baseline/run is never touched
+#
+# PSA_BASELINE   baseline folder with run/ and analysis/
+#                (default: ~/photo-analysis/baseline)
+#
+# Compares reports/*.csv, join_check.csv and, when the baseline has one, the
+# contents of photos_pivot.xlsx. Ends with one verdict line.
+# Exit: 0 no differences, 1 differences, 2 could not run.
+
+set -uo pipefail
+
+repo="${0:A:h:h}"
+base="${PSA_BASELINE:-$HOME/photo-analysis/baseline}"
+refresh=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --refresh) refresh=1 ;;
+    *) print -u2 "regress: unknown option: $arg"; exit 2 ;;
+  esac
+done
+
+fail() { print "regression: could not run: $*"; exit 2; }
+db() { env -u AI_AGENT -u CLAUDECODE duckdb -bail "$@"; }
+
+[[ -d "$base/run" ]]      || fail "baseline run folder missing: $base/run"
+[[ -d "$base/analysis" ]] || fail "baseline analysis folder missing: $base/analysis"
+command -v duckdb > /dev/null || fail "duckdb not found"
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/psa-regress.XXXXXX") || fail "cannot create a temporary folder"
+new="$tmp/analysis"
+print "regress: analysing $base/run into $new"
+zsh "$repo/analysis/run.sh" "$base/run" --out "$new" > "$tmp/run.log" 2>&1 \
+  || { cat "$tmp/run.log"; fail "analysis failed (log: $tmp/run.log)"; }
+
+old="$base/analysis"
+differ=()
+
+# Reports, file by file, including files on one side only
+for r in ${(f)"$( { cd "$old/reports" 2>/dev/null && print -l *.csv(N); cd "$new/reports" && print -l *.csv(N); } | sort -u )"}; do
+  if [[ ! -f "$old/reports/$r" ]]; then
+    print -r -- "--- reports/$r: only in the new analysis"; differ+=("reports/$r")
+  elif [[ ! -f "$new/reports/$r" ]]; then
+    print -r -- "--- reports/$r: only in the baseline"; differ+=("reports/$r")
+  elif ! diff -u "$old/reports/$r" "$new/reports/$r" > "$tmp/diff.txt"; then
+    print -r -- "--- reports/$r: differs"; cat "$tmp/diff.txt"; differ+=("reports/$r")
+  fi
+done
+
+if ! diff -u "$old/join_check.csv" "$new/join_check.csv" > "$tmp/diff.txt"; then
+  print -r -- "--- join_check.csv: differs"; cat "$tmp/diff.txt"; differ+=("join_check.csv")
+fi
+
+# Pivot file, compared as data
+if [[ -f "$old/photos_pivot.xlsx" ]]; then
+  for side in old new; do
+    db -c "LOAD excel; COPY (SELECT * FROM read_xlsx('${(P)side}/photos_pivot.xlsx', sheet = 'photos', all_varchar = true)) TO '$tmp/pivot_$side.csv' (HEADER)" > /dev/null \
+      || fail "cannot read photos_pivot.xlsx ($side)"
+  done
+  if ! diff -u "$tmp/pivot_old.csv" "$tmp/pivot_new.csv" > "$tmp/diff.txt"; then
+    print -r -- "--- photos_pivot.xlsx: differs (first 40 lines)"; head -40 "$tmp/diff.txt"; differ+=("photos_pivot.xlsx")
+  fi
+else
+  print "regress: baseline has no photos_pivot.xlsx; not compared"
+fi
+
+print "regress: new analysis kept in $new"
+if (( ${#differ} )); then
+  print "regression: differences in ${(j:, :)differ}"; code=1
+else
+  print "regression: no differences"; code=0
+fi
+
+if (( refresh )); then
+  print -n "regress: replace $old with the new analysis? The current one is kept as analysis.<timestamp>. [y/N] "
+  read -r answer
+  if [[ "$answer" == [yY] ]]; then
+    keep="$base/analysis.$(date +%Y%m%dT%H%M%S)"
+    mv "$old" "$keep" && cp -R "$new" "$old" \
+      && print "regress: baseline analysis replaced; previous kept in $keep" \
+      || { print "regress: refresh failed"; exit 2; }
+  else
+    print "regress: baseline analysis not changed"
+  fi
+fi
+exit $code
