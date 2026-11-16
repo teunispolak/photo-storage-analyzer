@@ -105,15 +105,15 @@ def main(argv=None) -> int:
         shape("folder paths empty or ending in /",
               scalar(con, "SELECT count(*) FROM AgLibraryFolder "
                           "WHERE coalesce(pathFromRoot, '') = '' OR pathFromRoot LIKE '%/'"), folders)
-        masters = images - virtual
+        photos = images - virtual
         with_time = scalar(con, f"SELECT count(*) FROM Adobe_images WHERE masterImage IS NULL "
                                 f"AND captureTime GLOB '{TIME_GLOB}'")
-        print(f"  info capture time in expected format: {with_time} of {masters} masters "
-              f"({pct(with_time, masters)}); the rest falls back to the file date")
+        print(f"  info capture time in expected format: {with_time} of {photos} photos "
+              f"({pct(with_time, photos)}); the rest falls back to the file date")
         no_ext = scalar(con, "SELECT count(*) FROM AgLibraryFile WHERE coalesce(extension, '') = ''")
         print(f"  info files without extension: {no_ext}")
 
-        print("  info sidecar extensions (value: files)")
+        print("  info attached file extensions, Lightroom sidecarExtensions (value: files)")
         for value, n in con.execute(
                 "SELECT sidecarExtensions, count(*) FROM AgLibraryFile "
                 "WHERE coalesce(sidecarExtensions, '') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 10"):
@@ -135,7 +135,7 @@ def main(argv=None) -> int:
             ("images without file",
              "SELECT count(*) FROM Adobe_images i LEFT JOIN AgLibraryFile f "
              "ON f.id_local = i.rootFile WHERE f.id_local IS NULL"),
-            ("files without master image",
+            ("files without a photo (non-virtual image)",
              "SELECT count(*) FROM AgLibraryFile f WHERE NOT EXISTS (SELECT 1 FROM Adobe_images i "
              "WHERE i.rootFile = f.id_local AND i.masterImage IS NULL)"),
         ]

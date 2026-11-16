@@ -33,5 +33,7 @@ mts,video
 m2ts,video
 mkv,video
 3gp,video
-xmp,sidecar
-aae,sidecar
+xmp,metadata
+aae,metadata
+pp3,metadata
+thm,thumbnail

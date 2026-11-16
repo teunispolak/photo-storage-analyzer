@@ -54,7 +54,7 @@ Times:
 | `matched_case_only` | matched only after ignoring upper and lower case |
 | `catalog_paths_nfc_changed` | catalog paths with a different Unicode form, matched after normalizing |
 | `catalog_paths_prefix_mapped` | catalog paths changed by `--path-from`/`--path-to` |
-| `virtual_copies_excluded` | virtual copies left out; they share the master's file |
+| `virtual_copies_excluded` | virtual copies left out; they share the photo's file |
 | `date_source_catalog`, `date_source_mtime` | files dated by catalog capture time, or by file date as fallback |
 
 `matched` = 0 with many `catalog_only` usually means the catalog stores the photos under another path than the scan root: check the collector log for `does not overlap`, and use `--path-from`/`--path-to`.

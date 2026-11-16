@@ -109,7 +109,7 @@ print
 print "run: $run_id"
 db -noheader -list analysis.duckdb -c "
   SELECT '  ' || rpad(metric, 28, ' ') || value FROM join_check
-  WHERE metric IN ('disk_files', 'catalog_masters', 'matched', 'disk_only',
+  WHERE metric IN ('disk_files', 'catalog_photos', 'matched', 'disk_only',
                    'catalog_only', 'matched_case_only', 'date_source_mtime')"
 db -noheader -list analysis.duckdb -c "
   SELECT '  ' || rpad('disk_tb', 28, ' ') || round(value / 1e12, 3) FROM join_check WHERE metric = 'disk_bytes'"
