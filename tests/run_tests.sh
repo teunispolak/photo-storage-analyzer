@@ -199,6 +199,39 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   mkbase "$work/bl"; sed -i.bak 's/^\(.*\),raw,/\1,raw_x,/' "$work/bl/analysis/reports/volume_by_type.csv"; rm -f "$work/bl/analysis/reports/volume_by_type.csv.bak"
   check "regress: changed report gives exit 1" 1 rg "$work/bl"
   check "regress: verdict names the report" 0 test "$(verdict)" = "regression: differences in reports/volume_by_type.csv"
+  check "regress: summary counts rows and names the column" 0 sh -c "grep -q '^--- reports/volume_by_type.csv: 1 of [0-9]* rows differ' '$work/rg.out' && grep -Eq '^ +type_group +1 row\$' '$work/rg.out'"
+  check "regress: summary shows examples and the diff file" 0 sh -c "grep -q 'examples (full diff: ' '$work/rg.out' && grep -q '^ *-.*,raw_x,' '$work/rg.out'"
+  check "regress: full diff written to a file" 0 sh -c "f=\$(sed -n 's/.*examples (full diff: \(.*\)):/\1/p' '$work/rg.out' | head -1); test -s \"\$f\" && grep -q '^@@' \"\$f\""
+  check "regress: no full diff on screen by default" 1 grep -q '^@@' "$work/rg.out"
+  check "regress: --full prints the full diff" 1 sh -c "PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --full > '$work/rg.out' 2>&1"
+  check "regress: --full output has the diff" 0 grep -q '^@@' "$work/rg.out"
+
+  # two columns changed in the same rows, as with a rename
+  mkbase "$work/bl"; $py -I -c "
+import csv, sys
+p = sys.argv[1]; rows = list(csv.reader(open(p, newline='')))
+h = rows[0]; r, t = h.index('catalog_role'), h.index('type_group')
+for row in rows[1:]: row[r] = 'master'; row[t] = 'old_' + row[t]
+csv.writer(open(p, 'w', newline=''), lineterminator='\n').writerows(rows)" "$work/bl/analysis/reports/missing_from_disk.csv"
+  check "regress: two changed columns give exit 1" 1 rg "$work/bl"
+  check "regress: summary names both columns, nothing else" 0 sh -c "awk '/^--- reports\/missing_from_disk.csv/{p=1;next} /^      examples/{p=0} p' '$work/rg.out' | sed -E 's/ *[0-9,]+ rows?\$//; s/^ *//' | sort | tr '\n' ' ' | grep -qx 'catalog_role type_group '"
+
+  # rows added and removed
+  mkbase "$work/bl"; sed -i.bak '$d' "$work/bl/analysis/reports/volume_by_type.csv"; rm -f "$work/bl/analysis/reports/volume_by_type.csv.bak"
+  check "regress: row added in the new analysis gives exit 1" 1 rg "$work/bl"
+  check "regress: says 1 only in the new" 0 grep -q '^--- reports/volume_by_type.csv: .* 0 only in the baseline, 1 only in the new' "$work/rg.out"
+  mkbase "$work/bl"; tail -1 "$work/bl/analysis/reports/volume_by_type.csv" >> "$work/bl/analysis/reports/volume_by_type.csv"
+  check "regress: row removed in the new analysis gives exit 1" 1 rg "$work/bl"
+  check "regress: says 1 only in the baseline" 0 grep -q '^--- reports/volume_by_type.csv: .* 1 only in the baseline, 0 only in the new' "$work/rg.out"
+
+  # same rows, other order
+  mkbase "$work/bl"; $py -I -c "
+import sys
+p = sys.argv[1]; lines = open(p).read().splitlines(); body = lines[1:]; body.reverse()
+open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/reports/volume_by_type.csv"
+  check "regress: reordered rows give exit 1" 1 rg "$work/bl"
+  check "regress: reordered rows are reported as such" 0 grep -q 'volume_by_type.csv: same [0-9]* rows, in a different order' "$work/rg.out"
+
 
   mkbase "$work/bl"; print "a,b" > "$work/bl/analysis/reports/extra.csv"
   check "regress: report only in the baseline gives exit 1" 1 rg "$work/bl"
