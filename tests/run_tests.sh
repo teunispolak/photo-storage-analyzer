@@ -152,6 +152,35 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   for r in "$repo"/analysis/reports/*.sql; do
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
   done
+  # Pivot file (photos_pivot.xlsx)
+  dq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$@"; }
+  check "pivot: photos_pivot.xlsx written" 0 test -f "$ana/photos_pivot.xlsx"
+  contract_cols=$($py -I -c "import csv,sys; print(','.join(r['column'] for r in csv.DictReader(open(sys.argv[1]))))" "$repo/analysis/pivot_columns.csv")
+  contract_types=$($py -I -c "import csv,sys; print(','.join(r['type'] for r in csv.DictReader(open(sys.argv[1]))))" "$repo/analysis/pivot_columns.csv")
+  check "pivot: xlsx columns and order match the contract" 0 test "$(dq -c "LOAD excel; SELECT string_agg(column_name, ',') FROM (DESCRIBE SELECT * FROM read_xlsx('$ana/photos_pivot.xlsx', sheet = 'photos', all_varchar = true))")" = "$contract_cols"
+  check "pivot: column types match the contract" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(column_type, ',') FROM (DESCRIBE photos_pivot)")" = "$contract_types"
+  check "pivot: one row per file" 0 test "$(dq -c "LOAD excel; SELECT count(*) FROM read_xlsx('$ana/photos_pivot.xlsx', sheet = 'photos', all_varchar = true)")" = 10
+  check "pivot: files in the scan root are (root)" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder FROM photos_pivot WHERE name = 'root.txt'")" = "(root)|(root)"
+  check "pivot: folder is relative, folder_path is full" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder || '|' || (folder_path = '$d/vol/Photos/2014/Trip') FROM photos_pivot WHERE name = 'IMG_0001.CR2'")" = "2014|2014/Trip|true"
+  check "pivot: status values" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(status || '=' || n, ' ' ORDER BY status) FROM (SELECT status, count(*) AS n FROM photos_pivot GROUP BY 1)")" = "catalog only=1 disk only=4 matched=5"
+  check "pivot: catalog files outside the scan root" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) FILTER (WHERE top_folder = '(outside scan root)' AND folder IS NULL) || '/' || count(*) FILTER (WHERE status = 'catalog only') FROM photos_pivot")" = "6/6"
+
+  # Hints, with planted cases on a copy of the database
+  mkdir -p "$work/hints" && cp "$ana/analysis.duckdb" "$work/hints/"
+  check "pivot: hints computed on planted cases" 0 sh -c "cd '$work/hints' && env -u AI_AGENT -u CLAUDECODE duckdb -bail analysis.duckdb -c \"
+    INSERT INTO photos (path, parent, name, ext, size_bytes, on_disk, in_catalog, type_group, catalog_role) VALUES
+      ('$d/vol/Photos/2019/IMG_9.CR2', '2019', 'IMG_9.CR2', 'cr2', 25000000, true, false, 'raw', NULL),
+      ('$d/vol/Photos/2018/IMG_9.CR2', NULL, 'IMG_9.CR2', 'cr2', NULL, false, true, 'raw', 'master'),
+      ('$d/vol/Photos/2015/IMG_8.CR2', '2015', 'IMG_8.CR2', 'cr2', 24000000, true, false, 'raw', NULL),
+      ('$d/vol/Photos/2015/IMG_8.dng', '2015', 'IMG_8.dng', 'dng', 26000000, true, true, 'raw', 'master')\" -c '.read $repo/analysis/30_pivot.sql' > /dev/null"
+  check "pivot: moved file gets moved? and the catalog folder" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint || '|' || (catalog_folder = '$d/vol/Photos/2018') FROM photos_pivot WHERE name = 'IMG_9.CR2' AND status = 'disk only'")" = "moved?|true"
+  check "pivot: raw next to its DNG gets dng original?" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint FROM photos_pivot WHERE name = 'IMG_8.CR2'")" = "dng original?"
+  check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 2
+
+  # latest copy: only with the default output location
+  check "pivot: default output copies to latest" 0 sh -c "PSA_ANALYSIS_DIR='$work/base' zsh '$repo/analysis/run.sh' '$run' > /dev/null 2>&1 && test -f '$work/base/${run:t}/photos_pivot.xlsx' && cmp -s '$work/base/${run:t}/photos_pivot.xlsx' '$work/base/latest/photos_pivot.xlsx'"
+  check "pivot: --out leaves latest alone" 0 sh -c "PSA_ANALYSIS_DIR='$work/base2' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/base2/latest'"
+
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
   rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$run/manifest.json")
   check "reports: every report stamped with run_id" 0 test "$(rq "SELECT count(DISTINCT run_id) || '/' || min(run_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
