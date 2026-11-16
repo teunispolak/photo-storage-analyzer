@@ -109,8 +109,8 @@ else
   check "run.sh: second run gives identical reports" 0 sh -c "zsh '$repo/analysis/run.sh' '$run' --out '$work/ana2' > /dev/null 2>&1 && diff -r '$ana/reports' '$work/ana2/reports' && diff '$ana/join_check.csv' '$work/ana2/join_check.csv'"
 
   expected=(
-    disk_files 9  catalog_masters 4  catalog_sidecars 2  catalog_duplicate_keys 0
-    virtual_copies_excluded 1  matched 5  matched_master 3  matched_sidecar 2
+    disk_files 9  catalog_photos 4  catalog_attached 2  catalog_duplicate_keys 0
+    virtual_copies_excluded 1  matched 5  matched_photo 3  matched_attached 2
     disk_only 4  catalog_only 1  matched_case_only 1  catalog_paths_nfc_changed 1
     catalog_paths_prefix_mapped 0  date_source_catalog 5  date_source_mtime 5  date_source_none 0
   )
@@ -122,9 +122,12 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
     check "join: $metric = $value" 0 metric_is "$ana/join_check.csv" $metric $value
   done
   q() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$ana/analysis.duckdb" -c "$1"; }
-  check "join: JPEG of RAW+JPEG pair is a catalogued sidecar" 0 test "$(q "SELECT catalog_role FROM photos WHERE name = 'IMG_0100.JPG'")" = sidecar
+  check "join: JPEG of RAW+JPEG pair is an attached file" 0 test "$(q "SELECT catalog_role FROM photos WHERE name = 'IMG_0100.JPG'")" = attached
+  check "join: catalog roles are photo and attached" 0 test "$(q "SELECT string_agg(DISTINCT catalog_role, ',' ORDER BY catalog_role) FROM photos")" = "attached,photo"
+  check "join: types for metadata and thumbnails" 0 test "$(q "SELECT string_agg(ext || ':' || type_group, ' ' ORDER BY ext) FROM types WHERE ext IN ('aae','pp3','thm','xmp')")" = "aae:metadata pp3:metadata thm:thumbnail xmp:metadata"
+  check "join: no master or sidecar left in values or metric names" 0 test "$(q "SELECT count(*) FROM (SELECT catalog_role AS v FROM photos UNION ALL SELECT type_group FROM photos UNION ALL SELECT metric FROM join_check) WHERE v ILIKE '%master%' OR v ILIKE '%sidecar%'")" = 0
   check "join: raw capture year from catalog" 0 test "$(q "SELECT capture_year || '/' || date_source FROM photos WHERE name = 'IMG_0001.CR2'")" = "2014/catalog"
-  check "join: type groups" 0 test "$(q "SELECT string_agg(name || ':' || type_group, ' ' ORDER BY name) FROM photos WHERE name IN ('.DS_Store','IMG_0001.xmp','IMG_0100.NEF','root.txt')")" = ".DS_Store:system IMG_0001.xmp:sidecar IMG_0100.NEF:raw root.txt:other"
+  check "join: type groups" 0 test "$(q "SELECT string_agg(name || ':' || type_group, ' ' ORDER BY name) FROM photos WHERE name IN ('.DS_Store','IMG_0001.xmp','IMG_0100.NEF','root.txt')")" = ".DS_Store:system IMG_0001.xmp:metadata IMG_0100.NEF:raw root.txt:other"
 
   check "join: prefix mapping run" 0 $runsh "$run" --out "$work/ana_mapped" --path-from "$d/vol/Photos/" --path-to /elsewhere/
   check "join: prefix mapping applied to all catalog paths" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_paths_prefix_mapped 6
@@ -170,9 +173,9 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "pivot: hints computed on planted cases" 0 sh -c "cd '$work/hints' && env -u AI_AGENT -u CLAUDECODE duckdb -bail analysis.duckdb -c \"
     INSERT INTO photos (path, parent, name, ext, size_bytes, on_disk, in_catalog, type_group, catalog_role) VALUES
       ('$d/vol/Photos/2019/IMG_9.CR2', '2019', 'IMG_9.CR2', 'cr2', 25000000, true, false, 'raw', NULL),
-      ('$d/vol/Photos/2018/IMG_9.CR2', NULL, 'IMG_9.CR2', 'cr2', NULL, false, true, 'raw', 'master'),
+      ('$d/vol/Photos/2018/IMG_9.CR2', NULL, 'IMG_9.CR2', 'cr2', NULL, false, true, 'raw', 'photo'),
       ('$d/vol/Photos/2015/IMG_8.CR2', '2015', 'IMG_8.CR2', 'cr2', 24000000, true, false, 'raw', NULL),
-      ('$d/vol/Photos/2015/IMG_8.dng', '2015', 'IMG_8.dng', 'dng', 26000000, true, true, 'raw', 'master')\" -c '.read $repo/analysis/30_pivot.sql' > /dev/null"
+      ('$d/vol/Photos/2015/IMG_8.dng', '2015', 'IMG_8.dng', 'dng', 26000000, true, true, 'raw', 'photo')\" -c '.read $repo/analysis/30_pivot.sql' > /dev/null"
   check "pivot: moved file gets moved? and the catalog folder" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint || '|' || (catalog_folder = '$d/vol/Photos/2018') FROM photos_pivot WHERE name = 'IMG_9.CR2' AND status = 'disk only'")" = "moved?|true"
   check "pivot: raw next to its DNG gets dng original?" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint FROM photos_pivot WHERE name = 'IMG_8.CR2'")" = "dng original?"
   check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 2

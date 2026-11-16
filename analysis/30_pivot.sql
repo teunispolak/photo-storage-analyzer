@@ -32,9 +32,9 @@ moved AS (  -- same name in the catalog, not on disk there
     SELECT lower(name) AS lname, min(folder_path) AS catalog_folder
     FROM q WHERE in_catalog AND NOT on_disk GROUP BY 1
 ),
-dng AS (    -- same base name catalogued as master in the same folder
+dng AS (    -- same base name catalogued as a photo in the same folder
     SELECT DISTINCT folder_path, stem, ext FROM q
-    WHERE on_disk AND in_catalog AND catalog_role = 'master'
+    WHERE on_disk AND in_catalog AND catalog_role = 'photo'
 )
 SELECT
     CASE WHEN q.on_disk AND q.in_catalog THEN 'matched'

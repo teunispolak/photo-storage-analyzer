@@ -9,7 +9,7 @@ folder,VARCHAR,"folder relative to the scan root; (root) for the scan root itsel
 folder_path,VARCHAR,"full path of the folder"
 name,VARCHAR,"file name"
 size_mb,DOUBLE,"file size in MB (10^6 bytes); empty for files not on disk"
-catalog_role,VARCHAR,"master or sidecar; empty when not in the catalog"
+catalog_role,VARCHAR,"photo (the file Lightroom shows as a photo) or attached (a file Lightroom keeps with a photo: XMP, or the JPEG of a RAW+JPEG pair); empty when not in the catalog"
 lr_file_format,VARCHAR,"Lightroom file format, e.g. RAW, JPG, DNG"
 pick,DOUBLE,"Lightroom flag: 1 picked, 0 none, -1 rejected"
 rating,DOUBLE,"Lightroom star rating"

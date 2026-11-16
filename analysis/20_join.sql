@@ -20,19 +20,20 @@ FROM lr_file f
 JOIN lr_folder fo ON fo.id = f.folder_id
 JOIN lr_root r    ON r.id = fo.root_id;
 
--- Master image per file; virtual copies (master_id set) are left out
-CREATE OR REPLACE TEMP TABLE lr_master AS
+-- The image record per file; virtual copies (master_id set) are left out
+CREATE OR REPLACE TEMP TABLE lr_photo AS
 SELECT * FROM lr_image WHERE master_id IS NULL
 QUALIFY row_number() OVER (PARTITION BY file_id ORDER BY id) = 1;
 
--- One row per file Lightroom knows: the master file, plus each sidecar
--- listed in sidecarExtensions (xmp, and the JPEG of a RAW+JPEG pair)
+-- One row per file Lightroom knows: the photo file (role 'photo'), plus each
+-- file listed in sidecarExtensions (role 'attached': xmp, and the JPEG of a
+-- RAW+JPEG pair)
 CREATE OR REPLACE TEMP TABLE lr_entries_raw AS
-SELECT b.file_id, 'master' AS catalog_role,
+SELECT b.file_id, 'photo' AS catalog_role,
        b.stem_raw || CASE WHEN b.extension <> '' THEN '.' || b.extension ELSE '' END AS path_raw
 FROM lr_base b
 UNION ALL
-SELECT b.file_id, 'sidecar' AS catalog_role,
+SELECT b.file_id, 'attached' AS catalog_role,
        b.stem_raw || '.' || trim(s.ext) AS path_raw
 FROM lr_base b,
      unnest(string_split(b.sidecar_extensions, ',')) AS s(ext)
@@ -55,7 +56,7 @@ SELECT
          ELSE path_nfc END AS path
 FROM mapped;
 
--- Deduplicate on the match key; a master wins over a sidecar
+-- Deduplicate on the match key; a photo wins over an attached file
 CREATE OR REPLACE TABLE catalog_entries AS
 SELECT
     e.*,
@@ -65,9 +66,9 @@ SELECT
     try_cast(substr(m.capture_time_raw, 1, 19) AS TIMESTAMP) AS capture_time,
     m.pick, m.rating
 FROM lr_entries e
-LEFT JOIN lr_master m ON m.file_id = e.file_id
+LEFT JOIN lr_photo m ON m.file_id = e.file_id
 QUALIFY row_number() OVER (PARTITION BY lower(e.path)
-                           ORDER BY (e.catalog_role = 'master') DESC, e.file_id) = 1;
+                           ORDER BY (e.catalog_role = 'photo') DESC, e.file_id) = 1;
 
 -- Join ----------------------------------------------------------------------
 
@@ -116,13 +117,13 @@ CREATE OR REPLACE TABLE join_check AS
 SELECT * FROM (VALUES
     ('disk_files',              (SELECT count(*) FROM scan)),
     ('disk_bytes',              (SELECT coalesce(sum(size_bytes), 0) FROM scan)),
-    ('catalog_masters',         (SELECT count(*) FROM lr_entries WHERE catalog_role = 'master')),
-    ('catalog_sidecars',        (SELECT count(*) FROM lr_entries WHERE catalog_role = 'sidecar')),
+    ('catalog_photos',          (SELECT count(*) FROM lr_entries WHERE catalog_role = 'photo')),
+    ('catalog_attached',        (SELECT count(*) FROM lr_entries WHERE catalog_role = 'attached')),
     ('catalog_duplicate_keys',  (SELECT count(*) FROM lr_entries) - (SELECT count(*) FROM catalog_entries)),
     ('virtual_copies_excluded', (SELECT count(*) FROM lr_image WHERE master_id IS NOT NULL)),
     ('matched',                 (SELECT count(*) FROM photos WHERE on_disk AND in_catalog)),
-    ('matched_master',          (SELECT count(*) FROM photos WHERE on_disk AND catalog_role = 'master')),
-    ('matched_sidecar',         (SELECT count(*) FROM photos WHERE on_disk AND catalog_role = 'sidecar')),
+    ('matched_photo',           (SELECT count(*) FROM photos WHERE on_disk AND catalog_role = 'photo')),
+    ('matched_attached',        (SELECT count(*) FROM photos WHERE on_disk AND catalog_role = 'attached')),
     ('disk_only',               (SELECT count(*) FROM photos WHERE on_disk AND NOT in_catalog)),
     ('catalog_only',            (SELECT count(*) FROM photos WHERE in_catalog AND NOT on_disk)),
     ('matched_case_only',       (SELECT count(*) FROM photos WHERE case_only_match)),

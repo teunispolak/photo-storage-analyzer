@@ -1,4 +1,4 @@
--- Files on disk that are not in the catalog (as master or sidecar),
+-- Files on disk that are not in the catalog (as photo or attached file),
 -- by type group and year.
 COPY (
     SELECT r.run_id, r.scan_date, p.type_group, p.capture_year,
