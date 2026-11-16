@@ -213,6 +213,13 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "regress: changed pivot contents give exit 1" 1 rg "$work/bl"
   check "regress: verdict names photos_pivot.xlsx" 0 test "$(verdict)" = "regression: differences in photos_pivot.xlsx"
 
+  mkbase "$work/bl"; env -u AI_AGENT -u CLAUDECODE duckdb -c "LOAD excel; COPY (SELECT 1 AS x) TO '$work/bl/analysis/photos_pivot.xlsx' (FORMAT xlsx, HEADER true, SHEET 'jpegs')" > /dev/null
+  check "regress: baseline pivot file that is not a tool output gives exit 1" 1 rg "$work/bl"
+  check "regress: says the baseline file is not a tool output" 0 grep -q "baseline file is not a tool output" "$work/rg.out"
+  check "regress: other outputs still compared" 0 test "$(verdict)" = "regression: differences in photos_pivot.xlsx"
+  check "regress: --refresh repairs it" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  check "regress: no differences after the repair" 0 rg "$work/bl"
+
   mkbase "$work/bl"; rm "$work/bl/analysis/photos_pivot.xlsx"
   check "regress: baseline without pivot file still runs" 0 rg "$work/bl"
   check "regress: says pivot not compared" 0 grep -q "baseline has no photos_pivot.xlsx; not compared" "$work/rg.out"
@@ -294,6 +301,15 @@ check "psa: behind on clean main is updated and restarted" 0 test "$(st)" = upda
 check "psa: update brings HEAD to origin/main" 0 same_head
 print 'print "marker: new psa"' >> "$up/dev/psa"; $G -C "$up/dev" commit -q -am "psa change"; $G -C "$up/dev" push -q origin main
 check "psa: after an update, the new psa continues the run" 0 sh -c "zsh '$cl/psa' status 2>/dev/null | grep -q 'marker: new psa'"
+$py -I -c "
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace('check-catalog|collect|analyse|regress|status) known=1 ;;', 'check-catalog|collect|analyse|regress|status|hello) known=1 ;;')
+s = s.replace('  status)\n', '  hello) print \"hello from new psa\" ;;\n  status)\n', 1)
+open(p, 'w').write(s)" "$up/dev/psa"
+$G -C "$up/dev" commit -q -am "new command"; $G -C "$up/dev" push -q origin main
+check "psa: new command works on first call from an older copy" 0 sh -c "zsh '$cl/psa' hello 2>/dev/null | grep -q 'hello from new psa'"
+check "psa: command unknown in both versions exits 1" 1 zsh "$cl/psa" nonexistent
 print change >> "$cl/README.md"; publish c2
 check "psa: local changes are not updated" 0 test "$(st)" = local_changes
 check "psa: local changes leave HEAD as it was" 1 same_head

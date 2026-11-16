@@ -88,13 +88,21 @@ report() {
 
 cmd="${1:-}"
 case "$cmd" in
-  check-catalog|collect|analyse|regress|status) shift ;;
   ""|-h|--help|help) usage; exit 0 ;;
-  *) note "unknown command: $cmd"; usage; exit 1 ;;
+esac
+known=0
+case "$cmd" in
+  check-catalog|collect|analyse|regress|status) known=1 ;;
 esac
 
-update_check "$cmd" "$@"
+# Update check first, also for an unknown command: a newer psa may know it,
+# and an update restarts with the same command and arguments
+update_check "$@"
 report
+if (( ! known )); then
+  note "unknown command: $cmd"; usage; exit 1
+fi
+shift
 export PSA_UPDATE_STATUS="$upd_status" PSA_UPDATE_DETAIL="$upd_detail"
 
 case "$cmd" in
