@@ -61,12 +61,18 @@ if ! diff -u "$old/join_check.csv" "$new/join_check.csv" > "$tmp/diff.txt"; then
 fi
 
 # Pivot file, compared as data
+pivot_csv() {  # pivot_csv <xlsx> <csv>: the sheet "photos" as text
+  db -c "LOAD excel; COPY (SELECT * FROM read_xlsx('$1', sheet = 'photos', all_varchar = true)) TO '$2' (HEADER)" > "$tmp/pivot_read.log" 2>&1
+}
 if [[ -f "$old/photos_pivot.xlsx" ]]; then
-  for side in old new; do
-    db -c "LOAD excel; COPY (SELECT * FROM read_xlsx('${(P)side}/photos_pivot.xlsx', sheet = 'photos', all_varchar = true)) TO '$tmp/pivot_$side.csv' (HEADER)" > /dev/null \
-      || fail "cannot read photos_pivot.xlsx ($side)"
-  done
-  if ! diff -u "$tmp/pivot_old.csv" "$tmp/pivot_new.csv" > "$tmp/diff.txt"; then
+  # the new file is the tool's own output: unreadable means the tool is broken
+  pivot_csv "$new/photos_pivot.xlsx" "$tmp/pivot_new.csv" \
+    || { cat "$tmp/pivot_read.log"; fail "cannot read the new photos_pivot.xlsx"; }
+  # the baseline file may be something else, e.g. a workbook with pivots
+  if ! pivot_csv "$old/photos_pivot.xlsx" "$tmp/pivot_old.csv"; then
+    print -r -- "--- photos_pivot.xlsx: the baseline file is not a tool output (no readable sheet \"photos\")"
+    differ+=("photos_pivot.xlsx")
+  elif ! diff -u "$tmp/pivot_old.csv" "$tmp/pivot_new.csv" > "$tmp/diff.txt"; then
     print -r -- "--- photos_pivot.xlsx: differs (first 40 lines)"; head -40 "$tmp/diff.txt"; differ+=("photos_pivot.xlsx")
   fi
 else

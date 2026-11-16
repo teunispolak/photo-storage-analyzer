@@ -213,6 +213,13 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "regress: changed pivot contents give exit 1" 1 rg "$work/bl"
   check "regress: verdict names photos_pivot.xlsx" 0 test "$(verdict)" = "regression: differences in photos_pivot.xlsx"
 
+  mkbase "$work/bl"; env -u AI_AGENT -u CLAUDECODE duckdb -c "LOAD excel; COPY (SELECT 1 AS x) TO '$work/bl/analysis/photos_pivot.xlsx' (FORMAT xlsx, HEADER true, SHEET 'jpegs')" > /dev/null
+  check "regress: baseline pivot file that is not a tool output gives exit 1" 1 rg "$work/bl"
+  check "regress: says the baseline file is not a tool output" 0 grep -q "baseline file is not a tool output" "$work/rg.out"
+  check "regress: other outputs still compared" 0 test "$(verdict)" = "regression: differences in photos_pivot.xlsx"
+  check "regress: --refresh repairs it" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  check "regress: no differences after the repair" 0 rg "$work/bl"
+
   mkbase "$work/bl"; rm "$work/bl/analysis/photos_pivot.xlsx"
   check "regress: baseline without pivot file still runs" 0 rg "$work/bl"
   check "regress: says pivot not compared" 0 grep -q "baseline has no photos_pivot.xlsx; not compared" "$work/rg.out"
