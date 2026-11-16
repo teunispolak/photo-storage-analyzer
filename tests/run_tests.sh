@@ -294,6 +294,15 @@ check "psa: behind on clean main is updated and restarted" 0 test "$(st)" = upda
 check "psa: update brings HEAD to origin/main" 0 same_head
 print 'print "marker: new psa"' >> "$up/dev/psa"; $G -C "$up/dev" commit -q -am "psa change"; $G -C "$up/dev" push -q origin main
 check "psa: after an update, the new psa continues the run" 0 sh -c "zsh '$cl/psa' status 2>/dev/null | grep -q 'marker: new psa'"
+$py -I -c "
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace('check-catalog|collect|analyse|regress|status) known=1 ;;', 'check-catalog|collect|analyse|regress|status|hello) known=1 ;;')
+s = s.replace('  status)\n', '  hello) print \"hello from new psa\" ;;\n  status)\n', 1)
+open(p, 'w').write(s)" "$up/dev/psa"
+$G -C "$up/dev" commit -q -am "new command"; $G -C "$up/dev" push -q origin main
+check "psa: new command works on first call from an older copy" 0 sh -c "zsh '$cl/psa' hello 2>/dev/null | grep -q 'hello from new psa'"
+check "psa: command unknown in both versions exits 1" 1 zsh "$cl/psa" nonexistent
 print change >> "$cl/README.md"; publish c2
 check "psa: local changes are not updated" 0 test "$(st)" = local_changes
 check "psa: local changes leave HEAD as it was" 1 same_head
