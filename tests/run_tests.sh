@@ -181,6 +181,56 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "pivot: default output copies to latest" 0 sh -c "PSA_ANALYSIS_DIR='$work/base' zsh '$repo/analysis/run.sh' '$run' > /dev/null 2>&1 && test -f '$work/base/${run:t}/photos_pivot.xlsx' && cmp -s '$work/base/${run:t}/photos_pivot.xlsx' '$work/base/latest/photos_pivot.xlsx'"
   check "pivot: --out leaves latest alone" 0 sh -c "PSA_ANALYSIS_DIR='$work/base2' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/base2/latest'"
 
+  # Regression check (./psa regress), against a baseline made from the test run
+  rg() {  # rg <baseline> [args...]: run regress, keep output in $work/rg.out
+    local b="$1"; shift
+    PSA_BASELINE="$b" zsh "$repo/analysis/regress.sh" "$@" > "$work/rg.out" 2>&1
+  }
+  verdict() { grep '^regression:' "$work/rg.out"; }
+  mkbase() { rm -rf "$1"; mkdir -p "$1"; cp -R "$run" "$1/run"; cp -R "$ana" "$1/analysis"; }
+  mkbase "$work/bl"
+  check "regress: unchanged baseline gives exit 0" 0 rg "$work/bl"
+  check "regress: verdict no differences" 0 test "$(verdict)" = "regression: no differences"
+  check "regress: pivot file compared" 1 grep -q "not compared" "$work/rg.out"
+
+  mkbase "$work/bl"; sed -i.bak 's/^\(.*\),raw,/\1,raw_x,/' "$work/bl/analysis/reports/volume_by_type.csv"; rm -f "$work/bl/analysis/reports/volume_by_type.csv.bak"
+  check "regress: changed report gives exit 1" 1 rg "$work/bl"
+  check "regress: verdict names the report" 0 test "$(verdict)" = "regression: differences in reports/volume_by_type.csv"
+
+  mkbase "$work/bl"; print "a,b" > "$work/bl/analysis/reports/extra.csv"
+  check "regress: report only in the baseline gives exit 1" 1 rg "$work/bl"
+  check "regress: says only in the baseline" 0 grep -q "reports/extra.csv: only in the baseline" "$work/rg.out"
+
+  mkbase "$work/bl"; rm "$work/bl/analysis/reports/size_buckets.csv"
+  check "regress: report only in the new analysis gives exit 1" 1 rg "$work/bl"
+  check "regress: says only in the new analysis" 0 grep -q "reports/size_buckets.csv: only in the new analysis" "$work/rg.out"
+
+  mkbase "$work/bl"; sed -i.bak 's/^matched,5$/matched,6/' "$work/bl/analysis/join_check.csv"; rm -f "$work/bl/analysis/join_check.csv.bak"
+  check "regress: changed join check gives exit 1" 1 rg "$work/bl"
+  check "regress: verdict names join_check.csv" 0 test "$(verdict)" = "regression: differences in join_check.csv"
+
+  mkbase "$work/bl"; cp "$work/hints/photos_pivot.xlsx" "$work/bl/analysis/photos_pivot.xlsx"
+  check "regress: changed pivot contents give exit 1" 1 rg "$work/bl"
+  check "regress: verdict names photos_pivot.xlsx" 0 test "$(verdict)" = "regression: differences in photos_pivot.xlsx"
+
+  mkbase "$work/bl"; rm "$work/bl/analysis/photos_pivot.xlsx"
+  check "regress: baseline without pivot file still runs" 0 rg "$work/bl"
+  check "regress: says pivot not compared" 0 grep -q "baseline has no photos_pivot.xlsx; not compared" "$work/rg.out"
+
+  check "regress: missing baseline gives exit 2" 2 rg "$work/nobaseline"
+  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline run folder missing" "$work/rg.out"
+
+  mkbase "$work/bl"; sed -i.bak 's/^matched,5$/matched,6/' "$work/bl/analysis/join_check.csv"; rm -f "$work/bl/analysis/join_check.csv.bak"
+  runsum=$(cd "$work/bl/run" && ls -lR | cksum)
+  check "regress: --refresh answered n keeps the baseline" 1 sh -c "printf 'n\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  check "regress: baseline unchanged after n" 0 grep -q '^matched,6$' "$work/bl/analysis/join_check.csv"
+  check "regress: --refresh answered y replaces the analysis" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  check "regress: baseline analysis is the new one" 0 grep -q '^matched,5$' "$work/bl/analysis/join_check.csv"
+  check "regress: previous analysis kept" 0 sh -c "ls -d '$work/bl'/analysis.* > /dev/null 2>&1 && grep -q '^matched,6$' '$work/bl'/analysis.*/join_check.csv"
+  check "regress: baseline run untouched" 0 test "$(cd "$work/bl/run" && ls -lR | cksum)" = "$runsum"
+  check "regress: after refresh, no differences" 0 rg "$work/bl"
+  check "psa: regress command dispatches" 0 sh -c "PSA_BASELINE='$work/bl' zsh '$repo/psa' regress 2>/dev/null | grep -q '^regression: no differences'"
+
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
   rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$run/manifest.json")
   check "reports: every report stamped with run_id" 0 test "$(rq "SELECT count(DISTINCT run_id) || '/' || min(run_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
