@@ -38,6 +38,11 @@ The received run folder is only read, never changed.
 | `join_check.csv` | counts to check the join |
 | `reports/*.csv` | one CSV per report, each starting with `run_id` and `scan_date` |
 
+Times:
+- `scan_date` is the client's local time with its UTC offset, e.g. `2026-11-16 11:22:08+01:00`. Runs collected before this was recorded show UTC with `+00:00`.
+- The run ID is in UTC (`...Z`), for sorting.
+- File dates (`mtime`, `btime`) are UTC; Lightroom capture times are the camera's local time. This only matters for files dated within an hour or two of New Year.
+
 ## Join check
 
 | Metric | Read as |
