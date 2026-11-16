@@ -6,6 +6,7 @@ runs/
 *.lrdata/
 *.csv
 !analysis/types.csv
+!analysis/pivot_columns.csv
 *.duckdb
 *.duckdb.wal
 *.part

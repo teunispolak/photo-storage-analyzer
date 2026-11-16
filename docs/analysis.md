@@ -24,7 +24,7 @@ Runs on the analysis machine. Starts from the received run folder produced by th
 
 | Option | Purpose |
 |---|---|
-| `--out <folder>` | output folder (default `~/photo-analysis/analysis/<run_id>`) |
+| `--out <folder>` | output folder (default `~/photo-analysis/analysis/<run_id>`, or under `$PSA_ANALYSIS_DIR` if set) |
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 
@@ -36,6 +36,7 @@ The received run folder is only read, never changed.
 |---|---|
 | `analysis.duckdb` | DuckDB database with the `photos` table, one row per file on disk or in the catalog |
 | `join_check.csv` | counts to check the join |
+| `photos_pivot.xlsx` | flat file for pivot tables, one row per file; with the default output also copied to `~/photo-analysis/analysis/latest/` |
 | `reports/*.csv` | one CSV per report, each starting with `run_id` and `scan_date` |
 
 Times:
@@ -57,6 +58,27 @@ Times:
 | `date_source_catalog`, `date_source_mtime` | files dated by catalog capture time, or by file date as fallback |
 
 `matched` = 0 with many `catalog_only` usually means the catalog stores the photos under another path than the scan root: check the collector log for `does not overlap`, and use `--path-from`/`--path-to`.
+
+## Pivot workbook
+
+`photos_pivot.xlsx` has one row per file on disk or in the catalog. Its columns and their meaning are listed in [`analysis/pivot_columns.csv`](../analysis/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
+
+Keep your pivots in a separate workbook, so a new run only needs a refresh. Set it up once, in Excel for Microsoft 365 for Mac:
+
+1. Create a new workbook, for example `~/photo-analysis/pivots.xlsx`.
+2. Data > Get Data (Power Query) > Excel workbook, and choose `~/photo-analysis/analysis/latest/photos_pivot.xlsx`.
+3. Select the sheet `photos` and load it to a table on a new sheet. Do not load it to the Data Model: Excel for Mac cannot refresh that.
+4. Click inside the table, then Insert > PivotTable.
+
+After each `./psa analyse` with the default output, Data > Refresh All updates the table and the pivots.
+
+Example, files on disk that Lightroom does not know:
+- Filters: `type_group` = raw, `status` = disk only
+- Rows: `top_folder`, `folder`
+- Columns: `hint`
+- Values: Count of `name`, Sum of `size_mb`
+
+`hint` = `moved?`: Lightroom knows a file with that name at `catalog_folder` (Find Missing Folder in Lightroom). `dng original?`: the raw original next to its DNG. Empty: not imported.
 
 ## Reports
 

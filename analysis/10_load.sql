@@ -14,9 +14,11 @@
 CREATE OR REPLACE TABLE run_info AS
 SELECT run_id,
        coalesce(replace(finished_local, 'T', ' '),
-                replace(replace(finished, 'T', ' '), 'Z', '+00:00')) AS scan_date
+                replace(replace(finished, 'T', ' '), 'Z', '+00:00')) AS scan_date,
+       scan_root
 FROM read_json(getvariable('run_dir') || '/manifest.json',
-               columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR', 'finished_local': 'VARCHAR'});
+               columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR', 'finished_local': 'VARCHAR',
+                          'scan_root': 'VARCHAR'});
 
 CREATE OR REPLACE TABLE scan AS
 SELECT

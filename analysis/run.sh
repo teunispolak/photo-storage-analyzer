@@ -6,15 +6,20 @@
 #                   [--path-from <prefix> --path-to <prefix>]
 #
 #   run_dir      received run folder (files.csv, catalog.lrcat, manifest.json)
-#   --out        output folder (default: ~/photo-analysis/analysis/<run_id>)
+#   --out        output folder (default: $PSA_ANALYSIS_DIR/<run_id>;
+#                with the default, photos_pivot.xlsx is also copied to
+#                $PSA_ANALYSIS_DIR/latest/ for the pivot workbook)
+#
+# PSA_ANALYSIS_DIR   base folder for analysis output
+#                    (default: ~/photo-analysis/analysis)
 #   --replace    overwrite the generated files in an existing output folder
 #   --path-from / --path-to
 #                replace a catalog path prefix, for a volume mounted under
 #                another name than the catalog expects
 #
-# Steps: verify -> load -> join -> reports -> summary.
+# Steps: verify -> load -> join -> pivot file -> reports -> summary.
 # The run folder is only read. Output: analysis.duckdb, join_check.csv,
-# reports/*.csv. Nothing is deleted.
+# photos_pivot.xlsx, reports/*.csv. Nothing is deleted.
 
 set -euo pipefail
 
@@ -59,7 +64,10 @@ current=$(git -C "$repo" rev-parse HEAD 2> /dev/null || print unknown)
 if [[ "$collected" != "$current" ]]; then
   print -u2 "run: warning: run collected with commit ${collected:0:7}, analysis runs on ${current:0:7}"
 fi
-out="${out:-$HOME/photo-analysis/analysis/$run_id}"
+default_out=0
+[[ -z "$out" ]] && default_out=1
+base="${PSA_ANALYSIS_DIR:-$HOME/photo-analysis/analysis}"
+out="${out:-$base/$run_id}"
 out="${out:A}"
 
 # Output must not be inside the repository or the run folder
@@ -83,6 +91,14 @@ print "run: loading and joining"
 db analysis.duckdb $vars -c ".read $repo/analysis/10_load.sql" -c ".read $repo/analysis/20_join.sql" > /dev/null \
   || die "load or join failed"
 
+# Pivot-ready flat file
+db analysis.duckdb -c ".read $repo/analysis/30_pivot.sql" > /dev/null || die "pivot file failed"
+latest=""
+if (( default_out )); then
+  latest="${base:A}/latest"
+  mkdir -p "$latest" && cp photos_pivot.xlsx "$latest/photos_pivot.xlsx" || die "copy to $latest failed"
+fi
+
 # 4. Reports
 for r in "$repo"/analysis/reports/*.sql; do
   db analysis.duckdb -c ".read $r" > /dev/null || die "report failed: ${r:t}"
@@ -101,4 +117,6 @@ print
 print "run: output in $out"
 print "  analysis.duckdb"
 print "  join_check.csv"
+print "  photos_pivot.xlsx"
+if [[ -n "$latest" ]]; then print "  (copied to $latest/photos_pivot.xlsx)"; fi
 for f in reports/*.csv; do print "  $f"; done
