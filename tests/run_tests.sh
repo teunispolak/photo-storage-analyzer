@@ -253,6 +253,16 @@ csv.writer(open(p, 'w', newline=''), lineterminator='\\n').writerows(rows)" "$wo
   check "regress: names the added column" 0 grep -q '^ *columns: added dated_by_mtime' "$work/rg.out"
   check "regress: added column alone changes no existing values" 0 grep -q '^--- reports/volume_by_year.csv: no differences in the existing columns' "$work/rg.out"
 
+  # a column and rows removed at once: rows compared on the shared columns
+  mkbase "$work/bl"; $py -I -c "
+import csv, sys
+p = sys.argv[1]; rows = list(csv.reader(open(p, newline='')))
+rows[0].append('old_col'); rows = [rows[0]] + [r + ['x'] for r in rows[1:]] + [r + ['x'] for r in rows[1:3]]
+csv.writer(open(p, 'w', newline=''), lineterminator='\\n').writerows(rows)" "$work/bl/analysis/reports/volume_by_type.csv"
+  check "regress: removed column and rows give exit 1" 1 rg "$work/bl"
+  check "regress: counts only the removed rows" 0 grep -q '^--- reports/volume_by_type.csv: .* 2 only in the baseline, 0 only in the new' "$work/rg.out"
+  check "regress: names the removed column" 0 grep -q '^ *columns: removed old_col' "$work/rg.out"
+
   # rows added and removed
   mkbase "$work/bl"; sed -i.bak '$d' "$work/bl/analysis/reports/volume_by_type.csv"; rm -f "$work/bl/analysis/reports/volume_by_type.csv.bak"
   check "regress: row added in the new analysis gives exit 1" 1 rg "$work/bl"
