@@ -47,6 +47,8 @@ check "lint: catches a planted print inside sh -c" 1 $py -I "$repo/tests/lint_te
 check "fixture: test catalog in WAL mode" 0 $py -I -c "
 import sys; h = open(sys.argv[1], 'rb').read(20); sys.exit(0 if h[18] == 2 and h[19] == 2 else 1)" "$d/lr/Test.lrcat"
 
+check "fixture: no SQLite side files next to the test catalogs" 0 test -z "$(ls "$d/lr" | grep -E 'lrcat-(wal|shm)')"
+
 # Catalog structure check
 chk=($py -I "$repo/collector/check_catalog.py")
 check "check_catalog: test catalog has the required structure" 0 $chk "$d/lr/Test.lrcat"
@@ -196,20 +198,7 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
 
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
 
-  # Multiple scan roots: a second tree, Extra, with its own catalog root
-  mkdir -p "$d/vol/Extra/2020"
-  print -n x1 > "$d/vol/Extra/2020/X1.CR2"; print -n x22 > "$d/vol/Extra/2020/X2.CR2"
-  $py -I -c "
-import sqlite3, sys
-src, dest, root = sys.argv[1:4]
-s = sqlite3.connect(f'file:{src}?mode=ro&immutable=1', uri=True); o = sqlite3.connect(dest)
-s.backup(o); s.close()
-o.execute('PRAGMA journal_mode=DELETE')  # no -wal or -shm next to it
-o.execute('INSERT INTO AgLibraryRootFolder VALUES (2, ?, ?)', (root, 'Extra'))
-o.execute(\"INSERT INTO AgLibraryFolder VALUES (20, '2020/', 2)\")
-o.execute(\"INSERT INTO AgLibraryFile VALUES (200, 'X1', 'CR2', 20, NULL)\")
-o.execute(\"INSERT INTO Adobe_images VALUES (2000, 200, NULL, '2020-05-05T05:05:05', 'RAW', 0, NULL)\")
-o.commit(); o.close()" "$d/lr/Test.lrcat" "$d/lr/Multi.lrcat" "$d/vol/Extra/"
+  # Multiple scan roots: a second tree, Extra, with its own catalog root (Multi.lrcat, from make_fixture.py)
   check "multi: nested scan roots refused" 1 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/2014" --catalog "$d/lr/Multi.lrcat" --out "$work/out_nested"
   cp "$work/last.out" "$work/nested.out"
   check "multi: says the roots are nested" 0 grep -q 'Scan roots are nested' "$work/nested.out"

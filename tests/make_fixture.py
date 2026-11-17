@@ -12,11 +12,22 @@ No real customer data is used.
 """
 
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+
+
+def remove_side_files(catalog: Path) -> None:
+    # Apple's system SQLite keeps -shm (and -wal) after closing a WAL database;
+    # a cleanly closed Lightroom catalog has none, so remove our own. Every
+    # catalog this fixture writes goes through here.
+    for suffix in ("-wal", "-shm"):
+        side = catalog.with_name(catalog.name + suffix)
+        if side.exists():
+            side.unlink()
 
 
 def main() -> int:
@@ -79,12 +90,24 @@ def main() -> int:
     ])
     con.commit()
     con.close()
-    # Apple's system SQLite keeps -shm (and -wal) after closing a WAL database;
-    # a cleanly closed Lightroom catalog has none, so remove our own
-    for suffix in ("-wal", "-shm"):
-        side = work / "lr" / ("Test.lrcat" + suffix)
-        if side.exists():
-            side.unlink()
+    remove_side_files(work / "lr" / "Test.lrcat")
+
+    # Second tree for multiple scan roots: Extra, with its own catalog root in
+    # Multi.lrcat (Test.lrcat plus that root); X1 catalogued, X2 not
+    extra = work / "vol" / "Extra"
+    (extra / "2020").mkdir(parents=True)
+    (extra / "2020" / "X1.CR2").write_bytes(b"x1")
+    (extra / "2020" / "X2.CR2").write_bytes(b"x22")
+    multi = work / "lr" / "Multi.lrcat"
+    shutil.copyfile(work / "lr" / "Test.lrcat", multi)
+    con = sqlite3.connect(multi)
+    con.execute("INSERT INTO AgLibraryRootFolder VALUES (2, ?, 'Extra')", (str(extra) + "/",))
+    con.execute("INSERT INTO AgLibraryFolder VALUES (20, '2020/', 2)")
+    con.execute("INSERT INTO AgLibraryFile VALUES (200, 'X1', 'CR2', 20, NULL)")
+    con.execute("INSERT INTO Adobe_images VALUES (2000, 200, NULL, '2020-05-05T05:05:05', 'RAW', 0, NULL)")
+    con.commit()
+    con.close()
+    remove_side_files(multi)
     print(work)
     return 0
 
