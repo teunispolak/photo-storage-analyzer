@@ -350,6 +350,18 @@ del m['client'], m['machine']; json.dump(m, open(p, 'w'), indent=2)" "$work/unla
   check "clients: invalid --machine stops" 1 $runsh_c "$work/unlabelled" --client old --machine 'M 5' --replace
   check "clients: unlabelled run with --out needs no labels" 0 $runsh_c "$work/unlabelled" --out "$work/ana_unlabelled"
 
+  # Usage text: one copy, in the header; every option run.sh accepts is in it
+  check "usage: no collection given stops" 1 zsh "$repo/analysis/run.sh" --client test --machine m5
+  cp "$work/last.out" "$work/usage.out"
+  check "usage: says the collection is missing" 0 grep -q 'no collection given' "$work/usage.out"
+  opts=(${(f)"$(grep -oE '^ +(-[a-z]\|)?--[a-z-]+\)' "$repo/analysis/run.sh" | grep -oE -- '--[a-z-]+')"})
+  check "usage: run.sh accepts options" 0 test ${#opts} -ge 7
+  for o in $opts; do
+    check "usage: lists $o" 0 grep -q -- "$o" "$work/usage.out"
+  done
+  check "usage: --help exits 0 with the usage" 0 sh -c "zsh '$repo/analysis/run.sh' --help | grep -q '^Usage:'"
+  check "usage: unknown option shows the usage" 0 sh -c "zsh '$repo/analysis/run.sh' --nonsense 2>&1 | grep -q '\-\-client / \-\-machine'"
+
   # Regression check (./psa regress), against a baseline made from the test run
   rg() {  # rg <baseline> [args...]: run regress, keep output in $work/rg.out
     local b="$1"; shift
