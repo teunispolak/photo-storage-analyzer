@@ -28,7 +28,7 @@ Runs on the analysis machine. Starts from the received run folder produced by th
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 
-The received run folder is only read, never changed.
+The received run folder is only read, never changed. The catalog is read from a working copy in a temporary folder (an APFS clone where possible, which takes no extra space on the same disk); it is removed when the analysis ends, also when it is interrupted.
 
 ## Output
 

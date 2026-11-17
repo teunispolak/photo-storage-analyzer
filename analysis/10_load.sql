@@ -2,6 +2,9 @@
 --
 -- Variables, set before .read:
 --   run_dir     received run folder with files.csv, catalog.lrcat, manifest.json (required)
+--   catalog     catalog file to read (optional; default run_dir/catalog.lrcat). run.sh
+--               passes a working copy: Lightroom catalogs use WAL mode, and opening one
+--               makes SQLite create -shm and -wal files next to it
 --   types_csv   path to analysis/types.csv (required)
 -- Requires a run with a catalog copy (not --skip-catalog).
 --
@@ -54,7 +57,7 @@ FROM read_csv(getvariable('types_csv'), header = true,
 -- Lightroom declares many columns without a type; read everything as text
 -- and cast explicitly.
 SET sqlite_all_varchar = true;
-ATTACH getvariable('run_dir') || '/catalog.lrcat' AS lr (TYPE sqlite, READ_ONLY);
+ATTACH coalesce(getvariable('catalog'), getvariable('run_dir') || '/catalog.lrcat') AS lr (TYPE sqlite, READ_ONLY);
 
 CREATE OR REPLACE TABLE lr_root AS
 SELECT cast(id_local AS BIGINT) AS id, absolutePath AS absolute_path

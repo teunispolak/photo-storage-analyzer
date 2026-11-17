@@ -52,6 +52,7 @@ def main() -> int:
 
     # Catalog: untyped columns, as Lightroom declares many of them
     con = sqlite3.connect(work / "lr" / "Test.lrcat")
+    con.execute("PRAGMA journal_mode=WAL")  # as Lightroom catalogs
     con.executescript("""
         CREATE TABLE AgLibraryRootFolder (id_local INTEGER PRIMARY KEY, absolutePath NOT NULL DEFAULT '', name);
         CREATE TABLE AgLibraryFolder (id_local INTEGER PRIMARY KEY, pathFromRoot NOT NULL DEFAULT '', rootFolder INTEGER);
@@ -78,6 +79,12 @@ def main() -> int:
     ])
     con.commit()
     con.close()
+    # Apple's system SQLite keeps -shm (and -wal) after closing a WAL database;
+    # a cleanly closed Lightroom catalog has none, so remove our own
+    for suffix in ("-wal", "-shm"):
+        side = work / "lr" / ("Test.lrcat" + suffix)
+        if side.exists():
+            side.unlink()
     print(work)
     return 0
 
