@@ -67,15 +67,16 @@ def main(argv):
             parts.append("same columns, different order")
         lines.append(f"      columns: {'; '.join(parts)}")
 
+    # compare on the columns both sides have; added or removed columns are
+    # reported above and do not make every row count as changed
+    common = [c for c in new_head if c in old_head]
+    oi = {c: old_head.index(c) for c in common}
+    ni = {c: new_head.index(c) for c in common}
+    cell = lambda row, i: row[i] if i < len(row) else None
+    proj_old = [tuple(cell(r, oi[c]) for c in common) for r in old_rows]
+    proj_new = [tuple(cell(r, ni[c]) for c in common) for r in new_rows]
+
     if len(old_rows) == len(new_rows):
-        # compare on the columns both sides have; added or removed columns are
-        # reported above and do not make every row count as changed
-        common = [c for c in new_head if c in old_head]
-        oi = {c: old_head.index(c) for c in common}
-        ni = {c: new_head.index(c) for c in common}
-        cell = lambda row, i: row[i] if i < len(row) else None
-        proj_old = [tuple(cell(r, oi[c]) for c in common) for r in old_rows]
-        proj_new = [tuple(cell(r, ni[c]) for c in common) for r in new_rows]
         changed = [i for i, (a, b) in enumerate(zip(proj_old, proj_new)) if a != b]
         if not changed:
             summary = f"no differences in the existing columns ({n(len(new_rows))} rows)"
@@ -94,8 +95,8 @@ def main(argv):
                     k = per_col[c]
                     lines.append(f"      {c.ljust(width)}  {n(k).rjust(8)} {'row' if k == 1 else 'rows'}")
     else:
-        only_old = Counter(map(tuple, old_rows)) - Counter(map(tuple, new_rows))
-        only_new = Counter(map(tuple, new_rows)) - Counter(map(tuple, old_rows))
+        only_old = Counter(proj_old) - Counter(proj_new)
+        only_new = Counter(proj_new) - Counter(proj_old)
         summary = (f"{n(len(old_rows))} rows in the baseline, {n(len(new_rows))} in the new analysis: "
                    f"{n(sum(only_old.values()))} only in the baseline, {n(sum(only_new.values()))} only in the new")
 

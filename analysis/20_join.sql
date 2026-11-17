@@ -5,7 +5,10 @@
 --                        catalog paths, for a volume mounted under another
 --                        name than the catalog expects
 --
--- Creates: catalog_entries, photos, join_check
+-- Creates: catalog_entries (all catalog files, with in_scope), photos (files
+--          under the scan root only), join_check
+-- Scope: the scan root. Catalog entries outside it are counted in join_check
+-- (catalog_outside_scan_root) and left out of photos.
 -- Writes:  join_check.csv in the current folder
 
 -- Catalog paths -------------------------------------------------------------
@@ -61,12 +64,14 @@ CREATE OR REPLACE TABLE catalog_entries AS
 SELECT
     e.*,
     lower(e.path) AS match_key,
+    starts_with(lower(e.path), r.root_lc) AS in_scope,
     m.id AS lr_image_id,
     m.file_format AS lr_file_format,
     try_cast(substr(m.capture_time_raw, 1, 19) AS TIMESTAMP) AS capture_time,
     m.pick, m.rating
 FROM lr_entries e
 LEFT JOIN lr_photo m ON m.file_id = e.file_id
+CROSS JOIN (SELECT lower(rtrim(scan_root, '/')) || '/' AS root_lc FROM run_info) r
 QUALIFY row_number() OVER (PARTITION BY lower(e.path)
                            ORDER BY (e.catalog_role = 'photo') DESC, e.file_id) = 1;
 
@@ -92,7 +97,7 @@ joined AS (
         c.nfc_changed, c.prefix_mapped,
         c.lr_image_id, c.lr_file_format, c.capture_time, c.pick, c.rating
     FROM disk d
-    FULL OUTER JOIN catalog_entries c ON c.match_key = d.match_key
+    FULL OUTER JOIN (SELECT * FROM catalog_entries WHERE in_scope) c ON c.match_key = d.match_key
 )
 SELECT
     j.*,
@@ -126,6 +131,7 @@ SELECT * FROM (VALUES
     ('matched_attached',        (SELECT count(*) FROM photos WHERE on_disk AND catalog_role = 'attached')),
     ('disk_only',               (SELECT count(*) FROM photos WHERE on_disk AND NOT in_catalog)),
     ('catalog_only',            (SELECT count(*) FROM photos WHERE in_catalog AND NOT on_disk)),
+    ('catalog_outside_scan_root', (SELECT count(*) FROM catalog_entries WHERE NOT in_scope)),
     ('matched_case_only',       (SELECT count(*) FROM photos WHERE case_only_match)),
     ('catalog_paths_nfc_changed', (SELECT count(*) FROM lr_entries WHERE nfc_changed)),
     ('catalog_paths_prefix_mapped', (SELECT count(*) FROM lr_entries WHERE prefix_mapped)),
