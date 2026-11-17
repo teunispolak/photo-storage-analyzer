@@ -18,7 +18,10 @@
 #                another name than the catalog expects
 #
 # Steps: verify -> load -> join -> pivot file -> reports -> summary.
-# The run folder is only read. Output: analysis.duckdb, join_check.csv,
+# The run folder is only read: the catalog is read from a working copy in a
+# temporary folder (an APFS clone where possible), because opening a
+# Lightroom catalog makes SQLite create side files next to it. The temporary
+# folder is removed when run.sh ends. Output: analysis.duckdb, join_check.csv,
 # photos_pivot.xlsx, reports/*.csv. Nothing is deleted.
 
 set -euo pipefail
@@ -79,7 +82,20 @@ fi
 mkdir -p "$out/reports"
 cd "$out"
 
+# Working copy of the catalog, so nothing is written next to the original
+work=$(mktemp -d "${TMPDIR:-/tmp}/psa-catalog.XXXXXX") || die "cannot create a temporary folder"
+# Removed on exit, and also on Ctrl-C, broken pipe or termination, which
+# would otherwise skip the EXIT trap and leave a catalog copy behind
+trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; exit 130' INT
+trap 'rm -rf "$work"; exit 141' PIPE
+trap 'rm -rf "$work"; exit 143' TERM HUP
+cp -c "$run_dir/catalog.lrcat" "$work/catalog.lrcat" 2> /dev/null \
+  || cp "$run_dir/catalog.lrcat" "$work/catalog.lrcat" \
+  || die "cannot copy the catalog to $work"
+
 vars=(-c "SET VARIABLE run_dir = '${run_dir//\'/\'\'}'"
+      -c "SET VARIABLE catalog = '${work//\'/\'\'}/catalog.lrcat'"
       -c "SET VARIABLE types_csv = '${repo//\'/\'\'}/analysis/types.csv'")
 if [[ -n "$path_from" ]]; then
   vars+=(-c "SET VARIABLE path_from = '${path_from//\'/\'\'}'"

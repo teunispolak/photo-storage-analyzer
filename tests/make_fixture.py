@@ -52,6 +52,7 @@ def main() -> int:
 
     # Catalog: untyped columns, as Lightroom declares many of them
     con = sqlite3.connect(work / "lr" / "Test.lrcat")
+    con.execute("PRAGMA journal_mode=WAL")  # as Lightroom catalogs
     con.executescript("""
         CREATE TABLE AgLibraryRootFolder (id_local INTEGER PRIMARY KEY, absolutePath NOT NULL DEFAULT '', name);
         CREATE TABLE AgLibraryFolder (id_local INTEGER PRIMARY KEY, pathFromRoot NOT NULL DEFAULT '', rootFolder INTEGER);

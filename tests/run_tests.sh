@@ -37,6 +37,16 @@ $py -I "$repo/tests/make_fixture.py" "$work/data" > /dev/null || exit 1
 d="$work/data"
 args=(--scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat")
 
+# Guard: no zsh-only commands inside sh -c in this script
+check "lint: no zsh print inside sh -c" 0 $py -I "$repo/tests/lint_tests.py" "$repo/tests/run_tests.sh"
+zprint=print  # assembled, so this script does not contain the pattern itself
+printf 'check "x" 0 sh -c "%s -r -- hi | grep -q hi"\n' "$zprint" > "$work/planted.sh"
+check "lint: catches a planted print inside sh -c" 1 $py -I "$repo/tests/lint_tests.py" "$work/planted.sh"
+
+# Test catalog uses WAL mode, as Lightroom catalogs (header bytes 18 and 19 are 2)
+check "fixture: test catalog in WAL mode" 0 $py -I -c "
+import sys; h = open(sys.argv[1], 'rb').read(20); sys.exit(0 if h[18] == 2 and h[19] == 2 else 1)" "$d/lr/Test.lrcat"
+
 # Catalog structure check
 chk=($py -I "$repo/collector/check_catalog.py")
 check "check_catalog: test catalog has the required structure" 0 $chk "$d/lr/Test.lrcat"
@@ -100,6 +110,12 @@ else
   before=$(cd "$run" && ls -lR)
   check "run.sh: complete run" 0 $runsh "$run" --out "$ana"
   check "run.sh: run folder left unchanged" 0 test "$(cd "$run" && ls -lR)" = "$before"
+  check "run.sh: no SQLite side files in the run folder" 0 test -z "$(ls "$run" | grep -E 'lrcat-(wal|shm)')"
+  mkdir -p "$work/tmp_normal" "$work/tmp_pipe"
+  check "run.sh: working copy removed after a normal run" 0 sh -c "TMPDIR='$work/tmp_normal' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_tmpcheck' > /dev/null 2>&1 && test -z \"\$(ls '$work/tmp_normal')\""
+  TMPDIR="$work/tmp_pipe" zsh "$repo/analysis/run.sh" "$run" --out "$work/ana_pipe" 2>&1 | grep -q 'loading and joining'
+  sleep 1
+  check "run.sh: working copy removed when output is cut off (broken pipe)" 0 test -z "$(ls "$work/tmp_pipe")"
   check "run.sh: refuses existing output without --replace" 1 $runsh "$run" --out "$ana"
   check "run.sh: --replace overwrites" 0 $runsh "$run" --out "$ana" --replace
   check "run.sh: refuses output inside the run folder" 1 $runsh "$run" --out "$run/x"
