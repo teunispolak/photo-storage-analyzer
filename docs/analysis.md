@@ -72,6 +72,12 @@ Keep your pivots in a separate workbook, so a new run only needs a refresh. Set 
 
 After each `./psa analyse` with the default output, Data > Refresh All updates the table and the pivots.
 
+Reconciliation, the same split as `reports/reconciliation.csv`:
+- Rows: `status`, `location`, `catalog_role`
+- Values: Count of `name`, Sum of `size_mb`
+
+The grand total is all files known to the scan or the catalog; check it against the first line of `reconciliation.csv`.
+
 Example, files on disk that Lightroom does not know:
 - Filters: `type_group` = raw, `status` = disk only
 - Rows: `top_folder`, `folder`
@@ -129,5 +135,6 @@ It asks for confirmation, keeps the previous analysis as `analysis.<timestamp>`,
 | `size_buckets` | by file size bucket |
 | `not_catalogued` | files on disk not in the catalog, by type and year |
 | `missing_from_disk` | files in the catalog not on disk, one row per file |
+| `reconciliation` | all files, split level by level: on disk (matched, disk only) and catalog only (outside or in the scan root), each by catalog role; each line adds up to its parent; virtual copies on a separate line |
 
 Volume reports count files on disk; units are decimal (1 GB = 10^9 bytes). The output holds customer data.
