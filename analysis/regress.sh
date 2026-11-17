@@ -36,7 +36,7 @@ done
 fail() { print "regression: could not run: $*"; exit 2; }
 db() { env -u AI_AGENT -u CLAUDECODE duckdb -bail "$@"; }
 
-[[ -d "$base/run" ]]      || fail "baseline run folder missing: $base/run"
+[[ -d "$base/run" ]]      || fail "baseline collection missing: $base/run"
 [[ -d "$base/analysis" ]] || fail "baseline analysis folder missing: $base/analysis"
 command -v duckdb > /dev/null || fail "duckdb not found"
 

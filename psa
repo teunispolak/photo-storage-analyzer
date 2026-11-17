@@ -4,7 +4,7 @@
 # Usage:
 #   ./psa check-catalog [<catalog.lrcat>] [--show-roots]
 #   ./psa collect [--client <c> --machine <m>] [--scan-root <folder>]... [--catalog <file>] [options]
-#   ./psa analyse <run folder> [options]
+#   ./psa analyse <collection> [options]
 #   ./psa regress [--full] [--refresh]
 #   ./psa status
 #

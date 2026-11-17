@@ -17,10 +17,10 @@ Output: <out>/<run_id>/, run_id = <client>_<machine>_<UTC timestamp>
   catalog.lrcat    copy of the Lightroom catalog
   files.csv        one row per file under the scan roots
   manifest.json    run metadata, counts, checksums
-  collector.log    log of this run
+  collector.log    log of the collector
 
 Requires Python 3.9+, standard library only.
-Nothing is deleted or modified outside the run folder.
+Nothing is deleted or modified outside the collection folder.
 """
 
 import argparse
@@ -496,7 +496,7 @@ def main(argv=None) -> int:
 
     script = Path(__file__).resolve()
     started = now_iso()
-    log.info("Collector %s, run %s", COLLECTOR_VERSION, run_id)
+    log.info("Collector %s, collection %s", COLLECTOR_VERSION, run_id)
     log.info("Client %s, machine %s, host %s", args.client, args.machine, host)
     # The settings lines went to the console before preflight; repeat them in the log file
     file_log = logging.getLogger("collector.file")
@@ -564,12 +564,12 @@ def main(argv=None) -> int:
         part.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(part, run_dir / "manifest.json")
     except Exception as e:  # noqa: BLE001 - log and exit non-zero, leave no manifest
-        log.exception("Run failed: %s", e)
-        log.error("No manifest written; this run is incomplete. Folder: %s", run_dir)
+        log.exception("Collection failed: %s", e)
+        log.error("No manifest written; this collection is incomplete. Folder: %s", run_dir)
         return 2
 
-    log.info("Run complete: %s", run_dir)
-    log.info("Next: transfer this folder to the analysis machine: %s", run_dir)
+    log.info("Collection complete: %s", run_dir)
+    log.info("Next: transfer this collection to the analysis machine: %s", run_dir)
     return 0
 
 

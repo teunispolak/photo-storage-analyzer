@@ -447,7 +447,7 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
   check "regress: says pivot not compared" 0 grep -q "baseline has no photos_pivot.xlsx; not compared" "$work/rg.out"
 
   check "regress: missing baseline gives exit 2" 2 rg "$work/nobaseline"
-  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline run folder missing" "$work/rg.out"
+  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline collection missing" "$work/rg.out"
 
   mkbase "$work/bl"; sed -i.bak 's/^matched,5$/matched,6/' "$work/bl/analysis/join_check.csv"; rm -f "$work/bl/analysis/join_check.csv.bak"
   runsum=$(cd "$work/bl/run" && ls -lR | cksum)
@@ -559,8 +559,8 @@ prun=("$up"/out/*(/N)); prun="${prun[1]:-$up/out/none}"
 uc() { $py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['collector']['update_check']['status'])" "$1/manifest.json"; }
 check "manifest: update check recorded by psa" 0 test "$(uc "$prun")" = up_to_date
 check "manifest: direct call records not_run" 0 test "$(uc "$run")" = not_run
-check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'run collected with commit'"
-check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'run collected with commit'"
+check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'collection made with commit'"
+check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'collection made with commit'"
 
 # Settings file found by psa
 hm="$up/home"; mkdir -p "$hm/photo-analysis"; cp "$sd/two.env" "$hm/photo-analysis/settings.env"
