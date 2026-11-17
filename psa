@@ -5,7 +5,7 @@
 #   ./psa check-catalog <catalog.lrcat> [--show-roots]
 #   ./psa collect --scan-root <folder> --catalog <catalog.lrcat> [options]
 #   ./psa analyse <run folder> [options]
-#   ./psa regress [--refresh]
+#   ./psa regress [--full] [--refresh]
 #   ./psa status
 #
 # Before each command, the local copy of the repository is compared with

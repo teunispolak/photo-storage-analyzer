@@ -88,7 +88,20 @@ After a change to the tool, check whether the analysis results changed:
 ./psa regress
 ```
 
-It analyses the baseline run again into a temporary folder and compares the result with the stored baseline analysis: each report, `join_check.csv`, and the contents of `photos_pivot.xlsx` when the baseline has one. Differences are shown, and the last line is the verdict:
+It analyses the baseline run again into a temporary folder and compares the result with the stored baseline analysis: each report, `join_check.csv`, and the contents of `photos_pivot.xlsx` when the baseline has one. Each output is compared as a table. For an output that differs, it shows:
+
+- how many rows differ, and per column in how many rows; or, when the row count changed, how many rows are only in the baseline and only in the new analysis
+- up to five example lines, and the file with the full diff
+
+```
+--- reports/volume_by_type.csv: 1 of 5 rows differ
+      type_group         1 row
+      examples (full diff: /tmp/psa-regress.XXXX/diff/reports_volume_by_type.csv.diff):
+        -...,sidecar,1,3,0.0,0.0
+        +...,metadata,1,3,0.0,0.0
+```
+
+`./psa regress --full` prints the full diffs as well. The last line is the verdict:
 
 | Verdict | Exit |
 |---|---|

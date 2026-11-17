@@ -3,8 +3,9 @@
 # stored baseline analysis.
 #
 # Usage:
-#   analysis/regress.sh [--refresh]
+#   analysis/regress.sh [--full] [--refresh]
 #
+#   --full      print the full diff of each output, not only the summary
 #   --refresh   after the comparison, replace baseline/analysis with the new
 #               output; asks for confirmation; the previous analysis is kept
 #               as analysis.<timestamp>; baseline/run is never touched
@@ -13,18 +14,21 @@
 #                (default: ~/photo-analysis/baseline)
 #
 # Compares reports/*.csv, join_check.csv and, when the baseline has one, the
-# contents of photos_pivot.xlsx. Ends with one verdict line.
+# contents of photos_pivot.xlsx, as tables: per output the number of rows
+# that differ and in which columns, with a few examples. Full diffs are
+# written to the temporary folder. Ends with one verdict line.
 # Exit: 0 no differences, 1 differences, 2 could not run.
 
 set -uo pipefail
 
 repo="${0:A:h:h}"
 base="${PSA_BASELINE:-$HOME/photo-analysis/baseline}"
-refresh=0
+refresh=0 full=()
 
 for arg in "$@"; do
   case "$arg" in
     --refresh) refresh=1 ;;
+    --full)    full=(--full) ;;
     *) print -u2 "regress: unknown option: $arg"; exit 2 ;;
   esac
 done
@@ -44,6 +48,16 @@ zsh "$repo/analysis/run.sh" "$base/run" --out "$new" > "$tmp/run.log" 2>&1 \
 
 old="$base/analysis"
 differ=()
+mkdir -p "$tmp/diff"
+compare() {  # compare <label> <baseline csv> <new csv>: summary, adds to differ
+  local d="$tmp/diff/${1//\//_}.diff"
+  python3 -I "$repo/analysis/compare_csv.py" "$1" "$2" "$3" "$d" $full
+  case $? in
+    0) ;;
+    1) differ+=("$1") ;;
+    *) fail "cannot compare $1" ;;
+  esac
+}
 
 # Reports, file by file, including files on one side only
 for r in ${(f)"$( { cd "$old/reports" 2>/dev/null && print -l *.csv(N); cd "$new/reports" && print -l *.csv(N); } | sort -u )"}; do
@@ -51,14 +65,12 @@ for r in ${(f)"$( { cd "$old/reports" 2>/dev/null && print -l *.csv(N); cd "$new
     print -r -- "--- reports/$r: only in the new analysis"; differ+=("reports/$r")
   elif [[ ! -f "$new/reports/$r" ]]; then
     print -r -- "--- reports/$r: only in the baseline"; differ+=("reports/$r")
-  elif ! diff -u "$old/reports/$r" "$new/reports/$r" > "$tmp/diff.txt"; then
-    print -r -- "--- reports/$r: differs"; cat "$tmp/diff.txt"; differ+=("reports/$r")
+  else
+    compare "reports/$r" "$old/reports/$r" "$new/reports/$r"
   fi
 done
 
-if ! diff -u "$old/join_check.csv" "$new/join_check.csv" > "$tmp/diff.txt"; then
-  print -r -- "--- join_check.csv: differs"; cat "$tmp/diff.txt"; differ+=("join_check.csv")
-fi
+compare "join_check.csv" "$old/join_check.csv" "$new/join_check.csv"
 
 # Pivot file, compared as data
 pivot_csv() {  # pivot_csv <xlsx> <csv>: the sheet "photos" as text
@@ -72,14 +84,15 @@ if [[ -f "$old/photos_pivot.xlsx" ]]; then
   if ! pivot_csv "$old/photos_pivot.xlsx" "$tmp/pivot_old.csv"; then
     print -r -- "--- photos_pivot.xlsx: the baseline file is not a tool output (no readable sheet \"photos\")"
     differ+=("photos_pivot.xlsx")
-  elif ! diff -u "$tmp/pivot_old.csv" "$tmp/pivot_new.csv" > "$tmp/diff.txt"; then
-    print -r -- "--- photos_pivot.xlsx: differs (first 40 lines)"; head -40 "$tmp/diff.txt"; differ+=("photos_pivot.xlsx")
+  else
+    compare "photos_pivot.xlsx" "$tmp/pivot_old.csv" "$tmp/pivot_new.csv"
   fi
 else
   print "regress: baseline has no photos_pivot.xlsx; not compared"
 fi
 
 print "regress: new analysis kept in $new"
+if (( ${#differ} )); then print "regress: full diffs in $tmp/diff/"; fi
 if (( ${#differ} )); then
   print "regression: differences in ${(j:, :)differ}"; code=1
 else
