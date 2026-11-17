@@ -8,12 +8,13 @@ on the analysis machine.
 Steps:
   1. Preflight checks (stop on any failure, nothing written outside out dir)
   2. Copy the Lightroom catalog and verify the copy
-  3. Scan the photo tree (metadata only, file contents are not read)
+  3. Scan the photo trees, one per --scan-root (metadata only, file contents
+     are not read)
   4. Write manifest.json last; its presence marks a complete run
 
 Output: <out>/<run_id>/
   catalog.lrcat    copy of the Lightroom catalog
-  files.csv        one row per file under the scan root
+  files.csv        one row per file under the scan roots
   manifest.json    run metadata, counts, checksums
   collector.log    log of this run
 
@@ -66,6 +67,7 @@ CSV_COLUMNS = [
     "hidden",       # 1 if name starts with '.' or hidden flag set
     "dataless",     # 1 if content is not stored locally
     "symlink",      # 1 if the entry is a symbolic link (not followed)
+    "scan_root",    # the scan root this file was found under (absolute, NFC)
 ]
 
 log = logging.getLogger("collector")
@@ -163,22 +165,31 @@ def preflight(args, run_dir: Path, extra_roots: List[Path]) -> dict:
     if sys.version_info < (3, 9):
         problems.append(f"Python 3.9+ required, found {platform.python_version()}")
 
-    scan_root = args.scan_root
-    if not scan_root.is_dir():
-        problems.append(f"Scan root is not a folder: {scan_root}")
-    elif not os.access(scan_root, os.R_OK | os.X_OK):
-        problems.append(f"Scan root is not readable: {scan_root}")
-
+    roots = args.scan_roots
     out_base = args.out
-    if scan_root.is_dir() and is_within(out_base, scan_root):
-        problems.append(f"Output folder {out_base} is inside the scan root")
+    for scan_root in roots:
+        if not scan_root.is_dir():
+            problems.append(f"Scan root is not a folder: {scan_root}")
+        elif not os.access(scan_root, os.R_OK | os.X_OK):
+            problems.append(f"Scan root is not readable: {scan_root}")
+        if scan_root.is_dir() and is_within(out_base, scan_root):
+            problems.append(f"Output folder {out_base} is inside the scan root {scan_root}")
+    # Each file must belong to exactly one scan root
+    for i, a in enumerate(roots):
+        for b in roots[i + 1:]:
+            if a.is_dir() and b.is_dir():
+                if a.resolve() == b.resolve():
+                    problems.append(f"Scan root given twice: {a}")
+                elif is_within(a, b) or is_within(b, a):
+                    problems.append(f"Scan roots are nested, files would be counted twice: {a} and {b}")
 
     dbx = dropbox_roots() + extra_roots
     facts["dropbox_roots"] = [str(p) for p in dbx]
     for root in dbx:
         if is_within(out_base, root):
             problems.append(f"Output folder {out_base} is inside a Dropbox folder: {root}")
-    facts["scan_root_in_dropbox"] = any(is_within(scan_root, r) for r in dbx) if scan_root.is_dir() else None
+    facts["scan_root_in_dropbox"] = {
+        nfc(os.path.abspath(r)): any(is_within(r, d) for d in dbx) for r in roots if r.is_dir()}
 
     needed = 200 * 1024 * 1024  # margin for files.csv and log
     if not args.skip_catalog:
@@ -273,72 +284,79 @@ def copy_catalog(src: Path, run_dir: Path) -> dict:
 
 # ---------------------------------------------------------------- scan
 
-def scan(scan_root: Path, run_dir: Path) -> dict:
+def scan(scan_roots: List[Path], run_dir: Path) -> dict:
     dest = run_dir / "files.csv"
     part = run_dir / "files.csv.part"
-    root = Path(os.path.abspath(scan_root))
-    root_str = str(root)
-    log.info("Scanning %s", root)
     t0 = time.time()
 
     files = dirs = errors = 0
     total_size = total_alloc = dataless_count = 0
-    stack = [root_str]
+    per_root = {}
 
     with open(part, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(CSV_COLUMNS)
-        while stack:
-            current = stack.pop()
-            try:
-                it = os.scandir(current)
-            except OSError as e:
-                errors += 1
-                log.error("Cannot read folder %s: %s", current, e)
-                continue
-            with it:
-                for entry in it:
-                    try:
-                        is_link = entry.is_symlink()
-                        if not is_link and entry.is_dir(follow_symlinks=False):
-                            dirs += 1
-                            stack.append(entry.path)
+        for scan_root in scan_roots:
+            root_str = os.path.abspath(scan_root)
+            root_nfc = nfc(root_str)
+            log.info("Scanning %s", root_str)
+            before_files, before_size = files, total_size
+            stack = [root_str]
+            while stack:
+                current = stack.pop()
+                try:
+                    it = os.scandir(current)
+                except OSError as e:
+                    errors += 1
+                    log.error("Cannot read folder %s: %s", current, e)
+                    continue
+                with it:
+                    for entry in it:
+                        try:
+                            is_link = entry.is_symlink()
+                            if not is_link and entry.is_dir(follow_symlinks=False):
+                                dirs += 1
+                                stack.append(entry.path)
+                                continue
+                            st = entry.stat(follow_symlinks=False)
+                        except OSError as e:
+                            errors += 1
+                            log.error("Cannot stat %s: %s", entry.path, e)
                             continue
-                        st = entry.stat(follow_symlinks=False)
-                    except OSError as e:
-                        errors += 1
-                        log.error("Cannot stat %s: %s", entry.path, e)
-                        continue
-                    if not (is_link or stat.S_ISREG(st.st_mode)):
-                        continue  # sockets, devices, fifos
+                        if not (is_link or stat.S_ISREG(st.st_mode)):
+                            continue  # sockets, devices, fifos
 
-                    path = nfc(entry.path)
-                    rel = nfc(os.path.relpath(entry.path, root_str))
-                    parts = rel.split(os.sep)
-                    name = nfc(entry.name)
-                    ext = os.path.splitext(name)[1][1:].lower()
-                    flags = getattr(st, "st_flags", 0)
-                    hidden = name.startswith(".") or bool(flags & UF_HIDDEN)
-                    dataless = bool(flags & SF_DATALESS)
-                    alloc = getattr(st, "st_blocks", 0) * 512
+                        path = nfc(entry.path)
+                        rel = nfc(os.path.relpath(entry.path, root_str))
+                        parts = rel.split(os.sep)
+                        name = nfc(entry.name)
+                        ext = os.path.splitext(name)[1][1:].lower()
+                        flags = getattr(st, "st_flags", 0)
+                        hidden = name.startswith(".") or bool(flags & UF_HIDDEN)
+                        dataless = bool(flags & SF_DATALESS)
+                        alloc = getattr(st, "st_blocks", 0) * 512
 
-                    w.writerow([
-                        path, rel,
-                        parts[0] if len(parts) > 1 else "",
-                        os.sep.join(parts[:-1]),
-                        name, ext,
-                        st.st_size, alloc,
-                        utc_iso(st.st_mtime),
-                        utc_iso(getattr(st, "st_birthtime", None)),
-                        int(hidden), int(dataless), int(is_link),
-                    ])
-                    files += 1
-                    total_size += st.st_size
-                    total_alloc += alloc
-                    dataless_count += dataless
-                    if files % PROGRESS_EVERY == 0:
-                        log.info("  %d files, %.2f TB, %.0f s",
-                                 files, total_size / 1e12, time.time() - t0)
+                        w.writerow([
+                            path, rel,
+                            parts[0] if len(parts) > 1 else "",
+                            os.sep.join(parts[:-1]),
+                            name, ext,
+                            st.st_size, alloc,
+                            utc_iso(st.st_mtime),
+                            utc_iso(getattr(st, "st_birthtime", None)),
+                            int(hidden), int(dataless), int(is_link),
+                            root_nfc,
+                        ])
+                        files += 1
+                        total_size += st.st_size
+                        total_alloc += alloc
+                        dataless_count += dataless
+                        if files % PROGRESS_EVERY == 0:
+                            log.info("  %d files, %.2f TB, %.0f s",
+                                     files, total_size / 1e12, time.time() - t0)
+            per_root[root_nfc] = {"rows": files - before_files, "size_bytes": total_size - before_size}
+            log.info("  %s: %d files, %.2f TB", root_nfc, files - before_files,
+                     (total_size - before_size) / 1e12)
         f.flush()
         os.fsync(f.fileno())
 
@@ -357,6 +375,7 @@ def scan(scan_root: Path, run_dir: Path) -> dict:
         "seconds": round(elapsed),
         "sha256": sha256_file(dest),
         "columns": CSV_COLUMNS,
+        "per_root": per_root,
     }
 
 
@@ -364,8 +383,9 @@ def scan(scan_root: Path, run_dir: Path) -> dict:
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Collect file and catalog data for a photo storage assessment.")
-    p.add_argument("--scan-root", required=True, type=Path,
-                   help="root of the photo folder tree (e.g. /Volumes/Photos/Photos)")
+    p.add_argument("--scan-root", required=True, type=Path, action="append", dest="scan_roots",
+                   help="root of a photo folder tree (e.g. /Volumes/Photos/Photos); "
+                        "repeat for more roots, roots must not be nested")
     p.add_argument("--catalog", type=Path, help="path to the .lrcat file")
     p.add_argument("--out", type=Path, default=Path.home() / "photo-analysis" / "out",
                    help="base output folder (default: ~/photo-analysis/out)")
@@ -378,7 +398,7 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    args.scan_root = args.scan_root.expanduser()
+    args.scan_roots = [r.expanduser() for r in args.scan_roots]
     args.out = args.out.expanduser()
     if args.catalog:
         args.catalog = args.catalog.expanduser()
@@ -417,15 +437,16 @@ def main(argv=None) -> int:
             log.info("=" * 60)
             # Compare as text, as the join does: a path through a symlink
             # (e.g. /tmp vs /private/tmp on macOS) will not match.
-            root_txt = nfc(os.path.abspath(args.scan_root)).rstrip("/") + "/"
             cat_txt = [nfc(r).rstrip("/") + "/" for r in catalog["root_folders"]]
-            if cat_txt and not any(root_txt.startswith(c) or c.startswith(root_txt) for c in cat_txt):
-                log.warning("Scan root %s does not overlap any catalog root folder %s; "
-                            "catalog paths will not match. Pass --scan-root as the catalog "
-                            "stores it, or map the prefix with run.sh --path-from/--path-to.",
-                            root_txt, catalog["root_folders"])
+            for scan_root in args.scan_roots:
+                root_txt = nfc(os.path.abspath(scan_root)).rstrip("/") + "/"
+                if cat_txt and not any(root_txt.startswith(c) or c.startswith(root_txt) for c in cat_txt):
+                    log.warning("Scan root %s does not overlap any catalog root folder %s; "
+                                "catalog paths will not match. Pass --scan-root as the catalog "
+                                "stores it, or map the prefix with run.sh --path-from/--path-to.",
+                                root_txt, catalog["root_folders"])
 
-        files = scan(args.scan_root, run_dir)
+        files = scan(args.scan_roots, run_dir)
 
         finished_ts = time.time()
         manifest = {
@@ -450,7 +471,7 @@ def main(argv=None) -> int:
                 "macos": platform.mac_ver()[0] or platform.platform(),
                 "python": platform.python_version(),
             },
-            "scan_root": nfc(os.path.abspath(args.scan_root)),
+            "scan_roots": [nfc(os.path.abspath(r)) for r in args.scan_roots],
             "scan_root_in_dropbox": facts.get("scan_root_in_dropbox"),
             "dropbox_roots": facts.get("dropbox_roots", []),
             "catalog": catalog,

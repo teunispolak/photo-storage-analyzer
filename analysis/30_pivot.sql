@@ -1,7 +1,8 @@
 -- Pivot-ready flat file: one row per file, written to photos_pivot.xlsx.
 --
 -- Run after 20_join.sql, from inside the output folder.
--- Creates: view photos_located (photos with source, scan_root and folder columns,
+-- Creates: view photos_located (photos with source and folder columns relative
+--          to each file's scan root,
 --          used by photos_pivot and reports/reconciliation.sql)
 --          view photos_pivot (columns as in analysis/pivot_columns.csv)
 -- Writes:  photos_pivot.xlsx, sheet "photos"
@@ -11,16 +12,15 @@ INSTALL excel;
 LOAD excel;
 
 CREATE OR REPLACE VIEW photos_located AS
-WITH r AS (
-    SELECT rtrim(scan_root, '/') || '/' AS root FROM run_info
-),
-p AS (
+WITH p AS (
+    -- paths relative to each file's own scan root
     SELECT ph.*,
         regexp_replace(ph.path, '/[^/]+$', '') AS folder_path,
         regexp_replace(lower(ph.name), '\.[^.]+$', '') AS stem,
-        CASE WHEN starts_with(lower(ph.path), lower(r.root))
-             THEN substr(ph.path, length(r.root) + 1) END AS rel_path_any
-    FROM photos ph, r
+        CASE WHEN ph.scan_root IS NOT NULL
+              AND starts_with(lower(ph.path), lower(ph.scan_root) || '/')
+             THEN substr(ph.path, length(ph.scan_root) + 2) END AS rel_path_any
+    FROM photos ph
 ),
 q AS (
     -- folder relative to the scan root: NULL outside it, '' for the root itself
@@ -32,9 +32,8 @@ q AS (
 )
 SELECT q.*,
     CASE WHEN on_disk AND in_catalog THEN 'filesystem and catalog'
-         WHEN on_disk THEN 'filesystem only' ELSE 'catalog only' END AS source,
-    CASE WHEN rel_folder IS NOT NULL THEN ri.scan_root END AS scan_root
-FROM q, run_info ri;
+         WHEN on_disk THEN 'filesystem only' ELSE 'catalog only' END AS source
+FROM q;
 
 CREATE OR REPLACE VIEW photos_pivot AS
 WITH q AS (SELECT * FROM photos_located),

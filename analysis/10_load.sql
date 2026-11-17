@@ -8,20 +8,38 @@
 --   types_csv   path to analysis/types.csv (required)
 -- Requires a run with a catalog copy (not --skip-catalog).
 --
--- Creates: run_info, scan, types, lr_root, lr_folder, lr_file, lr_image
+-- Creates: run_info, scan_roots, scan, types, lr_root, lr_folder, lr_file, lr_image
+-- Runs collected before multiple scan roots (manifest scan_root, files.csv
+-- without a scan_root column) load the same way, with their single root.
 -- The catalog is copied into local tables and detached, so later queries do
 -- not need the catalog file.
 
 -- scan_date: the client's local time with UTC offset, as text, so it reads the
 -- same on any analysis machine. Older manifests have only the UTC time.
+CREATE OR REPLACE TEMP TABLE manifest AS
+SELECT *
+FROM read_json(getvariable('run_dir') || '/manifest.json',
+               columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR', 'finished_local': 'VARCHAR',
+                          'scan_root': 'VARCHAR', 'scan_roots': 'VARCHAR[]'});
+
 CREATE OR REPLACE TABLE run_info AS
 SELECT run_id,
        coalesce(replace(finished_local, 'T', ' '),
-                replace(replace(finished, 'T', ' '), 'Z', '+00:00')) AS scan_date,
-       scan_root
-FROM read_json(getvariable('run_dir') || '/manifest.json',
-               columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR', 'finished_local': 'VARCHAR',
-                          'scan_root': 'VARCHAR'});
+                replace(replace(finished, 'T', ' '), 'Z', '+00:00')) AS scan_date
+FROM manifest;
+
+-- One row per scan root; root_lc is the lower-case prefix used for matching
+CREATE OR REPLACE TABLE scan_roots AS
+SELECT nfc_normalize(rtrim(r, '/')) AS scan_root,
+       lower(nfc_normalize(rtrim(r, '/'))) || '/' AS root_lc
+FROM manifest, unnest(coalesce(scan_roots, [scan_root])) AS t(r);
+
+-- All columns as text; an older files.csv has no scan_root column, which
+-- UNION ALL BY NAME adds as NULL
+CREATE OR REPLACE TEMP TABLE files_raw AS
+SELECT * FROM read_csv(getvariable('run_dir') || '/files.csv', header = true, all_varchar = true)
+UNION ALL BY NAME
+SELECT NULL::VARCHAR AS scan_root WHERE false;
 
 CREATE OR REPLACE TABLE scan AS
 SELECT
@@ -32,22 +50,15 @@ SELECT
     coalesce(nfc_normalize(parent), '')    AS parent,
     nfc_normalize(name)                    AS name,
     coalesce(lower(ext), '')               AS ext,
-    size_bytes,
-    alloc_bytes,
+    cast(size_bytes AS BIGINT)             AS size_bytes,
+    cast(alloc_bytes AS BIGINT)            AS alloc_bytes,
     try_cast(replace(mtime, 'Z', '') AS TIMESTAMP) AS mtime,
     try_cast(replace(btime, 'Z', '') AS TIMESTAMP) AS btime,
-    hidden   = 1 AS hidden,
-    dataless = 1 AS dataless,
-    symlink  = 1 AS symlink
-FROM read_csv(getvariable('run_dir') || '/files.csv',
-    header = true,
-    columns = {
-        'path': 'VARCHAR', 'rel_path': 'VARCHAR', 'top_folder': 'VARCHAR',
-        'parent': 'VARCHAR', 'name': 'VARCHAR', 'ext': 'VARCHAR',
-        'size_bytes': 'BIGINT', 'alloc_bytes': 'BIGINT',
-        'mtime': 'VARCHAR', 'btime': 'VARCHAR',
-        'hidden': 'INTEGER', 'dataless': 'INTEGER', 'symlink': 'INTEGER'
-    });
+    hidden   = '1' AS hidden,
+    dataless = '1' AS dataless,
+    symlink  = '1' AS symlink,
+    nfc_normalize(rtrim(coalesce(scan_root, (SELECT min(scan_root) FROM scan_roots)), '/')) AS scan_root
+FROM files_raw;
 
 CREATE OR REPLACE TABLE types AS
 SELECT lower(ext) AS ext, type_group

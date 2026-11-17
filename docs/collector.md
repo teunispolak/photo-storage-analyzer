@@ -22,7 +22,9 @@ Runs on the client Mac. Produces a run folder for the [analysis runbook](analysi
      --scan-root "/Volumes/<drive>/<photo root>" \
      --catalog "$HOME/Pictures/Lightroom/<name>.lrcat"
    ```
-   Output goes to `~/photo-analysis/out/<run_id>/`; `--out` changes it. The output folder must not be inside the scan root or a Dropbox folder; preflight checks this.
+   For photos in more than one folder tree, repeat `--scan-root`, one per tree. The roots must not be nested; preflight refuses a root inside another, or the same root twice. The log and the manifest give the files and volume per root.
+
+   Output goes to `~/photo-analysis/out/<run_id>/`; `--out` changes it. The output folder must not be inside a scan root or a Dropbox folder; preflight checks this.
 3. When the log shows `Lightroom may be restarted now`, Lightroom can be reopened. The scan reads metadata only.
 4. Transfer the run folder `~/photo-analysis/out/<run_id>/` to the analysis machine.
 5. After the analysis has verified the received run folder, the run folder on the client Mac can be removed. Nothing is removed automatically.
@@ -52,7 +54,7 @@ Each `./psa` command first checks the repository against GitHub and updates it i
 | File | Content |
 |---|---|
 | `catalog.lrcat` | copy of the Lightroom catalog |
-| `files.csv` | one row per file under the scan root |
+| `files.csv` | one row per file under the scan roots, with the root it was found under |
 | `manifest.json` | run metadata, counts, checksums; written last |
 | `collector.log` | log of the run |
 

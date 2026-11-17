@@ -46,7 +46,9 @@ Times:
 
 ## Scope
 
-The scan root is the scope: every row in the `photos` table, the pivot file and the reports is a file under the scan root. The catalog is used to look up those files (capture date, catalogued or not). Catalog entries outside the scan root are not analysed; they are counted once, in `join_check.csv` and `reports/reconciliation.csv`.
+The scan roots are the scope: every row in the `photos` table, the pivot file and the reports is a file under one of the scan roots, and carries that root in `scan_root`. Folder columns are relative to the file's own root. The catalog is used to look up those files (capture date, catalogued or not). Catalog entries outside all scan roots are not analysed; they are counted once, in `join_check.csv` and `reports/reconciliation.csv`.
+
+Runs collected before multiple scan roots were supported analyse the same way, with their single root.
 
 ## Join check
 
@@ -139,7 +141,8 @@ It asks for confirmation, keeps the previous analysis as `analysis.<timestamp>`,
 |---|---|
 | `volume_by_type` | files and volume by type group |
 | `volume_by_year` | by capture year, with running total and how each year was dated |
-| `volume_by_folder` | by top-level folder under the scan root |
+| `volume_by_scan_root` | files and volume per scan root, by source |
+| `volume_by_folder` | by scan root and top-level folder under it |
 | `size_buckets` | by file size bucket |
 | `not_catalogued` | files on disk not in the catalog, by type and year |
 | `missing_from_disk` | files in the catalog not on disk, one row per file |

@@ -1,6 +1,6 @@
--- Volume by top-level folder under the scan root, files on disk.
+-- Volume by top-level folder under each scan root, files on disk.
 COPY (
-    SELECT r.run_id, r.scan_date,
+    SELECT r.run_id, r.scan_date, p.scan_root,
            CASE WHEN p.top_folder = '' THEN '(root)' ELSE p.top_folder END AS top_folder,
            count(*) AS files,
            sum(p.size_bytes) AS bytes,

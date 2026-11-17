@@ -47,6 +47,8 @@ check "lint: catches a planted print inside sh -c" 1 $py -I "$repo/tests/lint_te
 check "fixture: test catalog in WAL mode" 0 $py -I -c "
 import sys; h = open(sys.argv[1], 'rb').read(20); sys.exit(0 if h[18] == 2 and h[19] == 2 else 1)" "$d/lr/Test.lrcat"
 
+check "fixture: no SQLite side files next to the test catalogs" 0 test -z "$(ls "$d/lr" | grep -E 'lrcat-(wal|shm)')"
+
 # Catalog structure check
 chk=($py -I "$repo/collector/check_catalog.py")
 check "check_catalog: test catalog has the required structure" 0 $chk "$d/lr/Test.lrcat"
@@ -194,6 +196,58 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "pivot: scan_root column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') FROM photos_pivot")" = "$d/vol/Photos"
   check "pivot: every row has the scan root" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE scan_root IS NULL")" = 0
 
+  rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
+
+  # Multiple scan roots: a second tree, Extra, with its own catalog root (Multi.lrcat, from make_fixture.py)
+  check "multi: nested scan roots refused" 1 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/2014" --catalog "$d/lr/Multi.lrcat" --out "$work/out_nested"
+  cp "$work/last.out" "$work/nested.out"
+  check "multi: says the roots are nested" 0 grep -q 'Scan roots are nested' "$work/nested.out"
+  check "multi: same scan root twice refused" 1 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/" --catalog "$d/lr/Multi.lrcat" --out "$work/out_twice"
+  cp "$work/last.out" "$work/twice.out"
+  check "multi: says the root is given twice" 0 grep -q 'Scan root given twice' "$work/twice.out"
+  check "multi: refused runs wrote nothing" 0 test ! -e "$work/out_nested" -a ! -e "$work/out_twice"
+  check "multi: collector run with two roots" 0 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Extra" --catalog "$d/lr/Multi.lrcat" --out "$work/out_multi"
+  mrun=("$work"/out_multi/*(/N)); mrun="${mrun[1]:-$work/out_multi/none}"
+  check "multi: manifest lists both roots with per-root counts" 0 $py -I -c "
+import json, sys
+m = json.load(open(sys.argv[1])); d = sys.argv[2]
+roots = [d + '/vol/Photos', d + '/vol/Extra']
+pr = m['files']['per_root']
+sys.exit(0 if m['scan_roots'] == roots and [pr[r]['rows'] for r in roots] == [9, 2]
+         and pr[roots[1]]['size_bytes'] == 5 and 'scan_root' not in m else 1)" "$mrun/manifest.json" "$d"
+  check "multi: files.csv rel_path relative to its own root" 0 $py -I -c "
+import csv, sys
+r = {x['name']: x for x in csv.DictReader(open(sys.argv[1], encoding='utf-8'))}['X1.CR2']
+sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2', '2020', sys.argv[2]) else 1)" "$mrun/files.csv" "$d/vol/Extra"
+  check "multi: no overlap warning when every root is a catalog root" 1 grep -q 'does not overlap' "$mrun/collector.log"
+  check "multi: analysis" 0 $runsh "$mrun" --out "$work/ana_multi"
+  for metric value in disk_files 11 matched 6 disk_only 5 catalog_only 1 catalog_outside_scan_root 0; do
+    check "multi: join $metric = $value" 0 metric_is "$work/ana_multi/join_check.csv" $metric $value
+  done
+  check "multi: reconciliation adds up" 0 $py -I "$repo/tests/check_reconciliation.py" "$work/ana_multi"
+  check "multi: pivot rows per scan root" 0 test "$(dq "$work/ana_multi/analysis.duckdb" -c "SELECT string_agg(scan_root || '=' || n, ' ' ORDER BY scan_root) FROM (SELECT scan_root, count(*) AS n FROM photos_pivot GROUP BY 1)")" = "$d/vol/Extra=2 $d/vol/Photos=10"
+  check "multi: folder relative to its own scan root" 0 test "$(dq "$work/ana_multi/analysis.duckdb" -c "SELECT top_folder || '|' || folder || '|' || source || '|' || capture_year FROM photos_pivot WHERE name = 'X1.CR2'")" = "2020|2020|filesystem and catalog|2020"
+  check "multi: volume_by_scan_root per root and source" 0 test "$(rq "SELECT string_agg(regexp_extract(scan_root, '[^/]+\$') || ':' || source || '=' || files || '/' || bytes, ' ' ORDER BY scan_root, source) FROM read_csv('$work/ana_multi/reports/volume_by_scan_root.csv', all_varchar = true)")" = "Extra:filesystem and catalog=1/2 Extra:filesystem only=1/3 Photos:catalog only=1/0 Photos:filesystem and catalog=5/11137 Photos:filesystem only=4/16"
+  check "multi: volume_by_folder split by scan root" 0 test "$(rq "SELECT count(DISTINCT scan_root) FROM read_csv('$work/ana_multi/reports/volume_by_folder.csv', all_varchar = true)")" = 2
+
+  # Runs collected before multiple scan roots: no scan_root column, single scan_root in the manifest
+  cp -R "$run" "$work/old_format"
+  $py -I -c "
+import csv, hashlib, json, sys
+run = sys.argv[1]
+rows = list(csv.reader(open(run + '/files.csv', newline='', encoding='utf-8')))
+i = rows[0].index('scan_root')
+csv.writer(open(run + '/files.csv', 'w', newline='', encoding='utf-8'), lineterminator='\n').writerows(r[:i] + r[i+1:] for r in rows)
+m = json.load(open(run + '/manifest.json'))
+m['scan_root'] = m.pop('scan_roots')[0]
+m['files'].pop('per_root'); m['files']['columns'].remove('scan_root')
+m['files']['sha256'] = hashlib.sha256(open(run + '/files.csv', 'rb').read()).hexdigest()
+json.dump(m, open(run + '/manifest.json', 'w'), indent=2)" "$work/old_format"
+  check "old format: files.csv has no scan_root column" 1 grep -q 'scan_root' "$work/old_format/files.csv"
+  check "old format: analysis" 0 $runsh "$work/old_format" --out "$work/ana_oldformat"
+  check "old format: same join check and reports as the new format" 0 sh -c "diff '$ana/join_check.csv' '$work/ana_oldformat/join_check.csv' && diff -r '$ana/reports' '$work/ana_oldformat/reports'"
+  check "old format: pivot rows carry the single scan root" 0 test "$(dq "$work/ana_oldformat/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') || '/' || count(*) FROM photos_pivot")" = "$d/vol/Photos/10"
+
   # Hints, with planted cases on a copy of the database
   mkdir -p "$work/hints" && cp "$ana/analysis.duckdb" "$work/hints/"
   check "pivot: hints computed on planted cases" 0 sh -c "cd '$work/hints' && env -u AI_AGENT -u CLAUDECODE duckdb -bail analysis.duckdb -c \"
@@ -321,7 +375,6 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
   check "regress: after refresh, no differences" 0 rg "$work/bl"
   check "psa: regress command dispatches" 0 sh -c "PSA_BASELINE='$work/bl' zsh '$repo/psa' regress 2>/dev/null | grep -q '^regression: no differences'"
 
-  rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
   rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$run/manifest.json")
   check "reports: every report stamped with run_id" 0 test "$(rq "SELECT count(DISTINCT run_id) || '/' || min(run_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
   check "reports: raw = 2 files, 9000 bytes" 0 test "$(rq "SELECT files || '/' || bytes FROM '$ana/reports/volume_by_type.csv' WHERE type_group = 'raw'")" = "2/9000"

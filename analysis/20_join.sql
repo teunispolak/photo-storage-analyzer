@@ -5,10 +5,11 @@
 --                        catalog paths, for a volume mounted under another
 --                        name than the catalog expects
 --
--- Creates: catalog_entries (all catalog files, with in_scope), photos (files
---          under the scan root only), join_check
--- Scope: the scan root. Catalog entries outside it are counted in join_check
--- (catalog_outside_scan_root) and left out of photos.
+-- Creates: catalog_entries (all catalog files, with in_scope and scan_root),
+--          photos (files under the scan roots only, with scan_root), join_check
+-- Scope: the scan roots. Catalog entries outside all of them are counted in
+-- join_check (catalog_outside_scan_root) and left out of photos. The collector
+-- refuses nested roots, so a path is under one root at most.
 -- Writes:  join_check.csv in the current folder
 
 -- Catalog paths -------------------------------------------------------------
@@ -64,14 +65,15 @@ CREATE OR REPLACE TABLE catalog_entries AS
 SELECT
     e.*,
     lower(e.path) AS match_key,
-    starts_with(lower(e.path), r.root_lc) AS in_scope,
+    r.scan_root IS NOT NULL AS in_scope,
+    r.scan_root,
     m.id AS lr_image_id,
     m.file_format AS lr_file_format,
     try_cast(substr(m.capture_time_raw, 1, 19) AS TIMESTAMP) AS capture_time,
     m.pick, m.rating
 FROM lr_entries e
 LEFT JOIN lr_photo m ON m.file_id = e.file_id
-CROSS JOIN (SELECT lower(rtrim(scan_root, '/')) || '/' AS root_lc FROM run_info) r
+LEFT JOIN scan_roots r ON starts_with(lower(e.path), r.root_lc)
 QUALIFY row_number() OVER (PARTITION BY lower(e.path)
                            ORDER BY (e.catalog_role = 'photo') DESC, e.file_id) = 1;
 
@@ -90,6 +92,7 @@ joined AS (
         coalesce(d.ext, lower(regexp_extract(c.path, '\.([^./]+)$', 1))) AS ext,
         d.size_bytes, d.alloc_bytes, d.mtime, d.btime,
         d.hidden, d.dataless, d.symlink,
+        coalesce(d.scan_root, c.scan_root) AS scan_root,
         d.path IS NOT NULL AS on_disk,
         c.path IS NOT NULL AS in_catalog,
         c.catalog_role,

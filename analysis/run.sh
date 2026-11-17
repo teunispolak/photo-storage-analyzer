@@ -123,6 +123,7 @@ done
 # 5. Summary
 print
 print "run: $run_id"
+db -noheader -list analysis.duckdb -c "SELECT '  scan root: ' || scan_root FROM scan_roots ORDER BY scan_root"
 db -noheader -list analysis.duckdb -c "
   SELECT '  ' || rpad(metric, 28, ' ') || value FROM join_check
   WHERE metric IN ('disk_files', 'catalog_photos', 'matched', 'disk_only',
