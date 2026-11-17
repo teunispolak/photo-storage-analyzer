@@ -22,6 +22,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# settings.py sits next to this script; python -I leaves the script's folder off sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import settings as settings_file  # noqa: E402
+
 # Must match the columns analysis/10_load.sql reads (checked by the tests)
 REQUIRED = {
     "AgLibraryRootFolder": ["id_local", "absolutePath"],
@@ -43,9 +47,30 @@ def pct(n, total):
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Check a Lightroom catalog's structure.")
-    p.add_argument("catalog", type=Path)
+    p.add_argument("catalog", type=Path, nargs="?",
+                   help="path to the .lrcat file; replaces CATALOG of the settings file")
     p.add_argument("--show-roots", action="store_true", help="print root folder paths")
+    p.add_argument("--settings", type=Path,
+                   help="settings file with CATALOG (./psa passes it when it exists)")
     args = p.parse_args(argv)
+
+    if args.settings is not None:
+        try:
+            s = settings_file.load(args.settings)
+        except (settings_file.SettingsError, UnicodeDecodeError) as e:
+            print(f"FAIL {e}")
+            return 1
+        print(f"settings file: {s.path}")
+        if args.catalog is None and s.get("CATALOG"):
+            args.catalog = Path(s.get("CATALOG"))
+            print(f"  CATALOG from settings file: {args.catalog}")
+        elif s.get("CATALOG"):
+            print("  CATALOG from the command line; the settings file value is not used")
+    else:
+        print("settings file: none")
+    if args.catalog is None:
+        print("FAIL no catalog: give the .lrcat path or CATALOG in the settings file")
+        return 1
     cat = args.catalog.expanduser()
 
     if not cat.is_file():
