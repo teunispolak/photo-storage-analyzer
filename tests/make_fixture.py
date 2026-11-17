@@ -79,6 +79,12 @@ def main() -> int:
     ])
     con.commit()
     con.close()
+    # Apple's system SQLite keeps -shm (and -wal) after closing a WAL database;
+    # a cleanly closed Lightroom catalog has none, so remove our own
+    for suffix in ("-wal", "-shm"):
+        side = work / "lr" / ("Test.lrcat" + suffix)
+        if side.exists():
+            side.unlink()
     print(work)
     return 0
 
