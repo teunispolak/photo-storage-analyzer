@@ -240,6 +240,16 @@ csv.writer(open(p, 'w', newline=''), lineterminator='\n').writerows(rows)" "$wor
   check "regress: two changed columns give exit 1" 1 rg "$work/bl"
   check "regress: summary names both columns, nothing else" 0 sh -c "awk '/^--- reports\/missing_from_disk.csv/{p=1;next} /^      examples/{p=0} p' '$work/rg.out' | sed -E 's/ *[0-9,]+ rows?\$//; s/^ *//' | sort | tr '\n' ' ' | grep -qx 'catalog_role type_group '"
 
+  # a column added in the new analysis, existing values unchanged
+  mkbase "$work/bl"; $py -I -c "
+import csv, sys
+p = sys.argv[1]; rows = list(csv.reader(open(p, newline='')))
+i = rows[0].index('dated_by_mtime'); rows = [r[:i] + r[i+1:] for r in rows]
+csv.writer(open(p, 'w', newline=''), lineterminator='\\n').writerows(rows)" "$work/bl/analysis/reports/volume_by_year.csv"
+  check "regress: added column gives exit 1" 1 rg "$work/bl"
+  check "regress: names the added column" 0 grep -q '^ *columns: added dated_by_mtime' "$work/rg.out"
+  check "regress: added column alone changes no existing values" 0 grep -q '^--- reports/volume_by_year.csv: no differences in the existing columns' "$work/rg.out"
+
   # rows added and removed
   mkbase "$work/bl"; sed -i.bak '$d' "$work/bl/analysis/reports/volume_by_type.csv"; rm -f "$work/bl/analysis/reports/volume_by_type.csv.bak"
   check "regress: row added in the new analysis gives exit 1" 1 rg "$work/bl"

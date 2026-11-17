@@ -68,21 +68,25 @@ def main(argv):
         lines.append(f"      columns: {'; '.join(parts)}")
 
     if len(old_rows) == len(new_rows):
-        changed = [i for i, (a, b) in enumerate(zip(old_rows, new_rows)) if a != b]
-        if changed and Counter(map(tuple, old_rows)) == Counter(map(tuple, new_rows)):
+        # compare on the columns both sides have; added or removed columns are
+        # reported above and do not make every row count as changed
+        common = [c for c in new_head if c in old_head]
+        oi = {c: old_head.index(c) for c in common}
+        ni = {c: new_head.index(c) for c in common}
+        cell = lambda row, i: row[i] if i < len(row) else None
+        proj_old = [tuple(cell(r, oi[c]) for c in common) for r in old_rows]
+        proj_new = [tuple(cell(r, ni[c]) for c in common) for r in new_rows]
+        changed = [i for i, (a, b) in enumerate(zip(proj_old, proj_new)) if a != b]
+        if not changed:
+            summary = f"no differences in the existing columns ({n(len(new_rows))} rows)"
+        elif Counter(proj_old) == Counter(proj_new):
             summary = f"same {n(len(new_rows))} rows, in a different order"
         else:
             summary = f"{n(len(changed))} of {n(len(new_rows))} rows differ"
-            common = [c for c in new_head if c in old_head]
-            oi = {c: old_head.index(c) for c in common}
-            ni = {c: new_head.index(c) for c in common}
             per_col = Counter()
             for i in changed:
-                a, b = old_rows[i], new_rows[i]
-                for c in common:
-                    va = a[oi[c]] if oi[c] < len(a) else None
-                    vb = b[ni[c]] if ni[c] < len(b) else None
-                    if va != vb:
+                for k, c in enumerate(common):
+                    if proj_old[i][k] != proj_new[i][k]:
                         per_col[c] += 1
             width = max((len(c) for c in per_col), default=0)
             for c in common:  # in column order
