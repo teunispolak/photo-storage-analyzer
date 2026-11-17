@@ -172,6 +172,11 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   for r in "$repo"/analysis/reports/*.sql; do
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
   done
+  # Reconciliation report
+  check "reconciliation: levels add up and match join_check" 0 $py -I "$repo/tests/check_reconciliation.py" "$ana"
+  check "reconciliation: all catalog files outside the scan root (prefix mapping)" 0 $py -I "$repo/tests/check_reconciliation.py" "$work/ana_mapped"
+  check "reconciliation: mapped run puts 6 catalog files outside the scan root" 0 test "$(grep ',catalog only/outside scan root,' "$work/ana_mapped/reports/reconciliation.csv" | cut -d, -f5)" = 6
+
   # Pivot file (photos_pivot.xlsx)
   dq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$@"; }
   check "pivot: photos_pivot.xlsx written" 0 test -f "$ana/photos_pivot.xlsx"
@@ -184,6 +189,8 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "pivot: folder is relative, folder_path is full" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder || '|' || (folder_path = '$d/vol/Photos/2014/Trip') FROM photos_pivot WHERE name = 'IMG_0001.CR2'")" = "2014|2014/Trip|true"
   check "pivot: status values" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(status || '=' || n, ' ' ORDER BY status) FROM (SELECT status, count(*) AS n FROM photos_pivot GROUP BY 1)")" = "catalog only=1 disk only=4 matched=5"
   check "pivot: catalog files outside the scan root" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) FILTER (WHERE top_folder = '(outside scan root)' AND folder IS NULL) || '/' || count(*) FILTER (WHERE status = 'catalog only') FROM photos_pivot")" = "6/6"
+  check "pivot: location column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT location, ',' ORDER BY location) FROM photos_pivot")" = "in scan root"
+  check "pivot: location outside scan root in the mapped run" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE location = 'outside scan root' AND top_folder = '(outside scan root)'")" = 6
 
   # Hints, with planted cases on a copy of the database
   mkdir -p "$work/hints" && cp "$ana/analysis.duckdb" "$work/hints/"
@@ -232,6 +239,16 @@ for row in rows[1:]: row[r] = 'master'; row[t] = 'old_' + row[t]
 csv.writer(open(p, 'w', newline=''), lineterminator='\n').writerows(rows)" "$work/bl/analysis/reports/missing_from_disk.csv"
   check "regress: two changed columns give exit 1" 1 rg "$work/bl"
   check "regress: summary names both columns, nothing else" 0 sh -c "awk '/^--- reports\/missing_from_disk.csv/{p=1;next} /^      examples/{p=0} p' '$work/rg.out' | sed -E 's/ *[0-9,]+ rows?\$//; s/^ *//' | sort | tr '\n' ' ' | grep -qx 'catalog_role type_group '"
+
+  # a column added in the new analysis, existing values unchanged
+  mkbase "$work/bl"; $py -I -c "
+import csv, sys
+p = sys.argv[1]; rows = list(csv.reader(open(p, newline='')))
+i = rows[0].index('dated_by_mtime'); rows = [r[:i] + r[i+1:] for r in rows]
+csv.writer(open(p, 'w', newline=''), lineterminator='\\n').writerows(rows)" "$work/bl/analysis/reports/volume_by_year.csv"
+  check "regress: added column gives exit 1" 1 rg "$work/bl"
+  check "regress: names the added column" 0 grep -q '^ *columns: added dated_by_mtime' "$work/rg.out"
+  check "regress: added column alone changes no existing values" 0 grep -q '^--- reports/volume_by_year.csv: no differences in the existing columns' "$work/rg.out"
 
   # rows added and removed
   mkbase "$work/bl"; sed -i.bak '$d' "$work/bl/analysis/reports/volume_by_type.csv"; rm -f "$work/bl/analysis/reports/volume_by_type.csv.bak"
