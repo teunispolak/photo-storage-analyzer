@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verify a received collector run against its manifest.
+Verify a received collection against its manifest.
 
 Usage: python3 verify.py <run_dir>
 Exit 0 if complete and checksums match, 1 otherwise.
@@ -56,7 +56,7 @@ def main() -> int:
 
     if ok:
         f = m["files"]
-        print(f"ok   run {m['run_id']}: {f['rows']} files, "
+        print(f"ok   collection {m['run_id']}: {f['rows']} files, "
               f"{f['size_bytes'] / 1e12:.2f} TB, {f['errors']} scan errors")
     return 0 if ok else 1
 

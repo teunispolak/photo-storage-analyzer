@@ -6,6 +6,8 @@ are ignored. The file is read, not executed: $HOME, ${HOME} and a leading ~
 are expanded, nothing else.
 
 Keys:
+  CLIENT     client name, once; a label (see LABEL)
+  MACHINE    machine within the client, once; a label
   CATALOG    path to the .lrcat file, once
   SCAN_ROOT  root of a photo folder tree, one line per root
 
@@ -21,8 +23,18 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
-KEYS = {"CATALOG": "single", "SCAN_ROOT": "list"}
+KEYS = {"CLIENT": "single", "MACHINE": "single", "CATALOG": "single", "SCAN_ROOT": "list"}
 LINE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"$')
+# Client and machine labels end up in folder names
+LABEL = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+LABEL_RULE = "lowercase letters, digits and hyphens, starting with a letter or digit, at most 40 characters"
+
+
+def label_error(name: str, value: str) -> Optional[str]:
+    """None if value is a valid client or machine label, else the problem."""
+    if LABEL.match(value):
+        return None
+    return f"{name} {value!r} is not a valid label: {LABEL_RULE}"
 
 
 class SettingsError(Exception):
@@ -74,6 +86,9 @@ def load(path: Path) -> Settings:
             continue
         if KEYS[key] == "single" and key in values:
             problems.append(f"line {n}: {key} given more than once")
+            continue
+        if key in ("CLIENT", "MACHINE") and label_error(key, value):
+            problems.append(f"line {n}: {label_error(key, value)}")
             continue
         values.setdefault(key, []).append(expand(value, home))
     if problems:

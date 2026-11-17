@@ -10,7 +10,8 @@ repo="${0:A:h:h}"
 work="${TEST_WORK:-${TMPDIR:-/tmp}/photo-storage-analyzer-tests}"  # outside the repository
 work="${work:a}"  # absolute, no // (macOS TMPDIR ends in /); symlinks kept
 py="${PYTHON:-python3}"
-collect=($py -I "$repo/collector/collect.py")
+collect_raw=($py -I "$repo/collector/collect.py")
+collect=($collect_raw --client test --machine m1)  # labels are required; tests of labels use collect_raw
 # psa reads ~/photo-analysis/settings.env; tests use no settings file unless they set one
 export PSA_SETTINGS=""
 fails=0
@@ -68,15 +69,17 @@ sd="$work/settings"; mkdir -p "$sd"
 # value of a manifest field, as JSON: mq <run folder> <python expression on m>
 mq() { $py -I -c "import json,sys; m=json.load(open(sys.argv[1]+'/manifest.json')); print(json.dumps(eval(sys.argv[2])))" "$1" "$2"; }
 onerun() { local r=("$1"/*(/N)); print -- "${r[1]:-$1/none}"; }
-printf '# client settings\n\nCATALOG="%s"\nSCAN_ROOT="%s"\n  SCAN_ROOT="%s"  \n' "$d/lr/Multi.lrcat" "$d/vol/Photos" "$d/vol/Extra" > "$sd/two.env"
-check "settings: run with catalog and two roots from the file" 0 $collect --settings "$sd/two.env" --out "$work/out_set"
+printf '# client settings\n\nCLIENT="acme"\nMACHINE="anna"\nCATALOG="%s"\nSCAN_ROOT="%s"\n  SCAN_ROOT="%s"  \n' "$d/lr/Multi.lrcat" "$d/vol/Photos" "$d/vol/Extra" > "$sd/two.env"
+check "settings: run with labels, catalog and two roots from the file" 0 $collect_raw --settings "$sd/two.env" --out "$work/out_set"
 srun=$(onerun "$work/out_set")
 check "settings: scan roots taken from the file" 0 test "$(mq "$srun" "m['scan_roots']")" = "[\"$d/vol/Photos\", \"$d/vol/Extra\"]"
-check "settings: manifest records file, values and checksum" 0 test "$(mq "$srun" "[m['settings']['file'], m['settings']['used'], m['settings']['replaced_by_command_line'], len(m['settings']['sha256']), len(m['collector']['settings_module_sha256'])]")" = "[\"$sd/two.env\", {\"SCAN_ROOT\": [\"$d/vol/Photos\", \"$d/vol/Extra\"], \"CATALOG\": \"$d/lr/Multi.lrcat\"}, [], 64, 64]"
+check "settings: manifest records file, values and checksum" 0 test "$(mq "$srun" "[m['settings']['file'], m['settings']['used'], m['settings']['replaced_by_command_line'], len(m['settings']['sha256']), len(m['collector']['settings_module_sha256'])]")" = "[\"$sd/two.env\", {\"SCAN_ROOT\": [\"$d/vol/Photos\", \"$d/vol/Extra\"], \"CLIENT\": \"acme\", \"MACHINE\": \"anna\", \"CATALOG\": \"$d/lr/Multi.lrcat\"}, [], 64, 64]"
+check "labels: from the settings file into manifest and run folder name" 0 test "$(mq "$srun" "[m['client'], m['machine'], m['run_id'].rsplit('_', 1)[0]]")/${srun:t}" = "[\"acme\", \"anna\", \"acme_anna\"]/$(mq "$srun" "m['run_id']" | tr -d '\"')"
 check "settings: collector.log names the file and values" 0 grep -q "SCAN_ROOT from settings file: $d/vol/Extra" "$srun/collector.log"
-check "settings: --scan-root replaces all SCAN_ROOT lines" 0 $collect --settings "$sd/two.env" --scan-root "$d/vol/Photos" --out "$work/out_set_arg"
+check "settings: --scan-root replaces all SCAN_ROOT lines" 0 $collect_raw --settings "$sd/two.env" --scan-root "$d/vol/Photos" --machine bob --out "$work/out_set_arg"
 srun=$(onerun "$work/out_set_arg")
-check "settings: only the command-line root is scanned" 0 test "$(mq "$srun" "[m['scan_roots'], list(m['settings']['used']), m['settings']['replaced_by_command_line']]")" = "[[\"$d/vol/Photos\"], [\"CATALOG\"], [\"SCAN_ROOT\"]]"
+check "settings: only the command-line root is scanned" 0 test "$(mq "$srun" "[m['scan_roots'], list(m['settings']['used']), m['settings']['replaced_by_command_line']]")" = "[[\"$d/vol/Photos\"], [\"CLIENT\", \"CATALOG\"], [\"SCAN_ROOT\", \"MACHINE\"]]"
+check "labels: --machine replaces MACHINE" 0 test "$(mq "$srun" "[m['client'], m['machine']]")" = "[\"acme\", \"bob\"]"
 print -r -- 'CATALOG="$HOME/lr/Test.lrcat"' > "$sd/home.env"; print -r -- 'SCAN_ROOT="~/vol/Photos"' >> "$sd/home.env"
 check "settings: \$HOME and ~ expanded" 0 env HOME="$d" $collect --settings "$sd/home.env" --out "$work/out_set_home"
 check "settings: expanded values in the manifest" 0 test "$(mq "$(onerun "$work/out_set_home")" "m['settings']['used']")" = "{\"SCAN_ROOT\": [\"$d/vol/Photos\"], \"CATALOG\": \"$d/lr/Test.lrcat\"}"
@@ -97,6 +100,18 @@ for name content in \
   cp "$work/last.out" "$sd/$name.out"
   check "settings: $name is reported with its line number" 0 grep -q 'line [0-9]' "$sd/$name.out"
 done
+# Labels: required, valid
+check "labels: no client stops the run" 1 $collect_raw $args --machine m1 --out "$work/out_set_bad"
+cp "$work/last.out" "$sd/noclient.out"
+check "labels: says the client is missing" 0 grep -q 'No client' "$sd/noclient.out"
+check "labels: no machine stops the run" 1 $collect_raw $args --client test --out "$work/out_set_bad"
+for bad in Acme 'a b' -acme 'acme/x' "$(printf 'a%.0s' {1..41})"; do
+  check "labels: invalid client '$bad' stops the run" 1 $collect_raw $args --client="$bad" --machine m1 --out "$work/out_set_bad"
+done
+printf 'CLIENT="Acme Photo"\n' > "$sd/badlabel.env"
+check "labels: invalid CLIENT in the settings file stops the run" 1 $collect $args --settings "$sd/badlabel.env" --out "$work/out_set_bad"
+cp "$work/last.out" "$sd/badlabel.out"
+check "labels: settings file label error gives the line" 0 grep -q 'line 1: CLIENT' "$sd/badlabel.out"
 check "settings: missing file stops the run" 1 $collect --settings "$sd/none.env" --out "$work/out_set_bad"
 check "settings: stopped runs wrote nothing" 0 test ! -e "$work/out_set_bad"
 check "check_catalog: CATALOG from the settings file" 0 sh -c "$py -I '$repo/collector/check_catalog.py' --settings '$sd/two.env' | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
@@ -135,7 +150,7 @@ sys.exit(0 if t == unicodedata.normalize('NFC', t) and 'Café.JPG' in t else 1)"
 # Scan root through a symlink: paths differ from the catalog's, collector must warn
 ln -s "$d/vol" "$work/vol_link"
 check "collector: warns when scan root does not match catalog root" 0 sh -c \
-  "$py -I '$repo/collector/collect.py' --scan-root '$work/vol_link/Photos' --catalog '$d/lr/Test.lrcat' --out '$work/out_link' 2>&1 | grep -q 'does not overlap'"
+  "$py -I '$repo/collector/collect.py' --client test --machine m1 --scan-root '$work/vol_link/Photos' --catalog '$d/lr/Test.lrcat' --out '$work/out_link' 2>&1 | grep -q 'does not overlap'"
 check "collector: no warning when scan root matches" 1 grep -q 'does not overlap' "$run/collector.log"
 
 # macOS only: creation date and hidden flag
@@ -308,9 +323,32 @@ json.dump(m, open(run + '/manifest.json', 'w'), indent=2)" "$work/old_format"
   check "pivot: raw next to its DNG gets dng original?" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint FROM photos_pivot WHERE name = 'IMG_8.CR2'")" = "dng original?"
   check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 2
 
-  # latest copy: only with the default output location
-  check "pivot: default output copies to latest" 0 sh -c "PSA_ANALYSIS_DIR='$work/base' zsh '$repo/analysis/run.sh' '$run' > /dev/null 2>&1 && test -f '$work/base/${run:t}/photos_pivot.xlsx' && cmp -s '$work/base/${run:t}/photos_pivot.xlsx' '$work/base/latest/photos_pivot.xlsx'"
-  check "pivot: --out leaves latest alone" 0 sh -c "PSA_ANALYSIS_DIR='$work/base2' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/base2/latest'"
+  # Default output: filed by client and machine, latest per machine
+  cl_dir="$work/clients"; runsh_c=(env PSA_CLIENTS_DIR="$cl_dir" zsh "$repo/analysis/run.sh")
+  check "clients: default output for test/m1" 0 $runsh_c "$run"
+  cp "$work/last.out" "$work/clients_m1.out"
+  check "clients: analysis filed under client/machine/analysis/run" 0 test -f "$cl_dir/test/m1/analysis/${run:t}/photos_pivot.xlsx"
+  check "clients: latest per machine holds this run's pivot file" 0 cmp -s "$cl_dir/test/m1/analysis/${run:t}/photos_pivot.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
+  check "clients: summary names client and machine" 0 grep -q 'client: test, machine: m1' "$work/clients_m1.out"
+  cp "$cl_dir/test/m1/latest/photos_pivot.xlsx" "$work/latest_m1.xlsx"
+  check "clients: second machine of another client" 0 $runsh_c "$(onerun "$work/out_set")"
+  check "clients: its own latest" 0 test -f "$cl_dir/acme/anna/latest/photos_pivot.xlsx"
+  check "clients: other machine's latest unchanged" 0 cmp -s "$work/latest_m1.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
+  check "clients: --out leaves latest alone" 0 sh -c "PSA_CLIENTS_DIR='$work/clients2' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/clients2'"
+  check "clients: --client differing from the manifest stops" 1 $runsh_c "$run" --client other --replace
+  check "clients: PSA_ANALYSIS_DIR set stops" 1 env PSA_ANALYSIS_DIR="$work/base" zsh "$repo/analysis/run.sh" "$run" --out "$work/ana_oldvar"
+  check "clients: PSA_ANALYSIS_DIR stop wrote nothing" 0 test ! -e "$work/ana_oldvar" -a ! -e "$work/base"
+  # A run collected before labels: none in the manifest
+  cp -R "$run" "$work/unlabelled"
+  $py -I -c "
+import json, sys
+p = sys.argv[1] + '/manifest.json'; m = json.load(open(p))
+del m['client'], m['machine']; json.dump(m, open(p, 'w'), indent=2)" "$work/unlabelled"
+  check "clients: unlabelled run without --client/--machine stops" 1 $runsh_c "$work/unlabelled"
+  check "clients: unlabelled run filed by --client and --machine" 0 $runsh_c "$work/unlabelled" --client old --machine m5
+  check "clients: filed under old/m5" 0 test -f "$cl_dir/old/m5/analysis/${run:t}/photos_pivot.xlsx" -a -f "$cl_dir/old/m5/latest/photos_pivot.xlsx"
+  check "clients: invalid --machine stops" 1 $runsh_c "$work/unlabelled" --client old --machine 'M 5' --replace
+  check "clients: unlabelled run with --out needs no labels" 0 $runsh_c "$work/unlabelled" --out "$work/ana_unlabelled"
 
   # Regression check (./psa regress), against a baseline made from the test run
   rg() {  # rg <baseline> [args...]: run regress, keep output in $work/rg.out
@@ -409,7 +447,7 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
   check "regress: says pivot not compared" 0 grep -q "baseline has no photos_pivot.xlsx; not compared" "$work/rg.out"
 
   check "regress: missing baseline gives exit 2" 2 rg "$work/nobaseline"
-  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline run folder missing" "$work/rg.out"
+  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline collection missing" "$work/rg.out"
 
   mkbase "$work/bl"; sed -i.bak 's/^matched,5$/matched,6/' "$work/bl/analysis/join_check.csv"; rm -f "$work/bl/analysis/join_check.csv.bak"
   runsum=$(cd "$work/bl/run" && ls -lR | cksum)
@@ -516,25 +554,25 @@ cp -R "$cl" "$up/nogit"; rm -rf "$up/nogit/.git"
 check "psa: not a git checkout is a warning" 0 test "$(zsh "$up/nogit/psa" status 2> /dev/null | sed -n 's/^status: //p')" = not_a_checkout
 
 # Update check result in the manifest, and the commit warning in analyse
-check "psa: collect runs" 0 zsh "$cl/psa" collect --scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat" --out "$up/out"
+check "psa: collect runs" 0 zsh "$cl/psa" collect --client test --machine m1 --scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat" --out "$up/out"
 prun=("$up"/out/*(/N)); prun="${prun[1]:-$up/out/none}"
 uc() { $py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['collector']['update_check']['status'])" "$1/manifest.json"; }
 check "manifest: update check recorded by psa" 0 test "$(uc "$prun")" = up_to_date
 check "manifest: direct call records not_run" 0 test "$(uc "$run")" = not_run
-check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'run collected with commit'"
-check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'run collected with commit'"
+check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'collection made with commit'"
+check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'collection made with commit'"
 
 # Settings file found by psa
 hm="$up/home"; mkdir -p "$hm/photo-analysis"; cp "$sd/two.env" "$hm/photo-analysis/settings.env"
 check "psa: default settings file used without arguments" 0 env -u PSA_SETTINGS HOME="$hm" zsh "$cl/psa" collect --out "$up/out_set_default"
 check "psa: manifest names the default settings file" 0 test "$(mq "$(onerun "$up/out_set_default")" "m['settings']['file']")" = "\"$hm/photo-analysis/settings.env\""
-check "psa: PSA_SETTINGS names another file" 0 env PSA_SETTINGS="$sd/home.env" HOME="$d" zsh "$cl/psa" collect --out "$up/out_set_env"
+check "psa: PSA_SETTINGS names another file" 0 env PSA_SETTINGS="$sd/home.env" HOME="$d" zsh "$cl/psa" collect --client test --machine m1 --out "$up/out_set_env"
 check "psa: manifest names the PSA_SETTINGS file" 0 test "$(mq "$(onerun "$up/out_set_env")" "m['settings']['file']")" = "\"$sd/home.env\""
 check "psa: PSA_SETTINGS empty means no settings file" 1 env PSA_SETTINGS= HOME="$hm" zsh "$cl/psa" collect --out "$up/out_set_off"
 cp "$work/last.out" "$up/set_off.out"
 check "psa: says there is no scan root" 0 grep -q 'No scan root' "$up/set_off.out"
 check "psa: PSA_SETTINGS naming a missing file stops" 1 env PSA_SETTINGS="$sd/none.env" zsh "$cl/psa" collect --out "$up/out_set_off"
-check "psa: without a settings file, none is reported" 0 sh -c "env -u PSA_SETTINGS HOME='$up/nohome' zsh '$cl/psa' collect --scan-root '$d/vol/Photos' --skip-catalog --out '$up/out_set_none' 2>&1 | grep -q 'Settings file: none'"
+check "psa: without a settings file, none is reported" 0 sh -c "env -u PSA_SETTINGS HOME='$up/nohome' zsh '$cl/psa' collect --client test --machine m1 --scan-root '$d/vol/Photos' --skip-catalog --out '$up/out_set_none' 2>&1 | grep -q 'Settings file: none'"
 check "psa: check-catalog takes CATALOG from the default file" 0 sh -c "env -u PSA_SETTINGS HOME='$hm' zsh '$cl/psa' check-catalog 2>&1 | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
 check "psa: stopped settings runs wrote nothing" 0 test ! -e "$up/out_set_off"
 
