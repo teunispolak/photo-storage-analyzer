@@ -73,9 +73,12 @@ Keep your pivots in a separate workbook, so a new run only needs a refresh. Set 
 1. Create a new workbook, for example `~/photo-analysis/pivots.xlsx`.
 2. Data > Get Data (Power Query) > Excel workbook, and choose `~/photo-analysis/analysis/latest/photos_pivot.xlsx`.
 3. Select the sheet `photos` and load it to a table on a new sheet. Do not load it to the Data Model: Excel for Mac cannot refresh that.
-4. Click inside the table, then Insert > PivotTable.
+4. Data > Get Data (Power Query) > Launch Power Query Editor, select the query `photos`, and under Applied Steps delete `Changed column type` (right-click > Delete). Then Home > Close & Load. Excel adds that step automatically and it names every column; when a column is later removed or renamed, the refresh stops with an error. The pivot file already stores numbers as numbers, so the step is not needed.
+5. Click inside the table, then Insert > PivotTable.
 
 After each `./psa analyse` with the default output, Data > Refresh All updates the table and the pivots.
+
+If a refresh stops with `The column '…' of the table wasn't found`, the workbook still has the `Changed column type` step: delete it as in step 4, then refresh again.
 
 Reconciliation, the same split as `reports/reconciliation.csv`:
 - Rows: `source`, `catalog_role`
