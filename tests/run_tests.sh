@@ -161,6 +161,7 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
       -c "SET VARIABLE run_dir = '$rc'" -c "SET VARIABLE types_csv = '$repo/analysis/types.csv'" \
       -c ".read $repo/analysis/10_load.sql" -c ".read $repo/analysis/20_join.sql") > /dev/null 2>&1
   }
+  check "catalog columns: sample catalog still has no SQLite side files" 0 test -z "$(ls "$d/lr" | grep -E 'lrcat-(wal|shm)')"
   check "catalog columns: minimal catalog loads" 0 load_with "$variants/minimal.lrcat" "$variants/minimal"
   check "catalog columns: minimal catalog gives the same join" 0 diff "$ana/join_check.csv" "$variants/minimal/join_check.csv"
   check "catalog columns: one variant per required column" 0 test ${#cols} -eq 17

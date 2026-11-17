@@ -18,8 +18,10 @@ from pathlib import Path
 
 
 def build(src: Path, dest: Path, required: dict, drop=None) -> None:
-    out = sqlite3.connect(dest)
-    out.execute("ATTACH ? AS src", (str(src),))
+    out = sqlite3.connect(f"file:{dest}", uri=True)
+    # read the source without creating -wal/-shm next to it (Apple's SQLite
+    # keeps them after closing, and the collector then refuses the catalog)
+    out.execute("ATTACH ? AS src", (f"file:{src}?mode=ro&immutable=1",))
     for table, cols in required.items():
         keep = [c for c in cols if (table, c) != drop]
         # untyped columns, as Lightroom declares many of them
