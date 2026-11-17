@@ -11,6 +11,8 @@ work="${TEST_WORK:-${TMPDIR:-/tmp}/photo-storage-analyzer-tests}"  # outside the
 work="${work:a}"  # absolute, no // (macOS TMPDIR ends in /); symlinks kept
 py="${PYTHON:-python3}"
 collect=($py -I "$repo/collector/collect.py")
+# psa reads ~/photo-analysis/settings.env; tests use no settings file unless they set one
+export PSA_SETTINGS=""
 fails=0
 
 print "python: $(command -v $py) $($py --version 2>&1)"
@@ -38,10 +40,13 @@ d="$work/data"
 args=(--scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat")
 
 # Guard: no zsh-only commands inside sh -c in this script
-check "lint: no zsh print inside sh -c" 0 $py -I "$repo/tests/lint_tests.py" "$repo/tests/run_tests.sh"
+check "lint: test script passes the guards" 0 $py -I "$repo/tests/lint_tests.py" "$repo/tests/run_tests.sh"
 zprint=print  # assembled, so this script does not contain the pattern itself
 printf 'check "x" 0 sh -c "%s -r -- hi | grep -q hi"\n' "$zprint" > "$work/planted.sh"
 check "lint: catches a planted print inside sh -c" 1 $py -I "$repo/tests/lint_tests.py" "$work/planted.sh"
+lastout=last.out  # assembled, as above
+printf 'check "x" 0 grep -q hi "$work/%s"\n' "$lastout" > "$work/planted_last.sh"
+check "lint: catches a planted check reading the output file of check" 1 $py -I "$repo/tests/lint_tests.py" "$work/planted_last.sh"
 
 # Test catalog uses WAL mode, as Lightroom catalogs (header bytes 18 and 19 are 2)
 check "fixture: test catalog in WAL mode" 0 $py -I -c "
@@ -57,6 +62,46 @@ check "check_catalog: --show-roots prints the root folder" 0 sh -c "$py -I '$rep
 check "check_catalog: no root paths without --show-roots" 1 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' | grep -qF '$d/vol/Photos/'"
 $py -I -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('CREATE TABLE AgLibraryRootFolder (id_local, absolutePath)'); c.commit()" "$work/broken.lrcat"
 check "check_catalog: fails on a catalog missing tables" 1 $chk "$work/broken.lrcat"
+
+# Settings file (collector/settings.py), passed with --settings
+sd="$work/settings"; mkdir -p "$sd"
+# value of a manifest field, as JSON: mq <run folder> <python expression on m>
+mq() { $py -I -c "import json,sys; m=json.load(open(sys.argv[1]+'/manifest.json')); print(json.dumps(eval(sys.argv[2])))" "$1" "$2"; }
+onerun() { local r=("$1"/*(/N)); print -- "${r[1]:-$1/none}"; }
+printf '# client settings\n\nCATALOG="%s"\nSCAN_ROOT="%s"\n  SCAN_ROOT="%s"  \n' "$d/lr/Multi.lrcat" "$d/vol/Photos" "$d/vol/Extra" > "$sd/two.env"
+check "settings: run with catalog and two roots from the file" 0 $collect --settings "$sd/two.env" --out "$work/out_set"
+srun=$(onerun "$work/out_set")
+check "settings: scan roots taken from the file" 0 test "$(mq "$srun" "m['scan_roots']")" = "[\"$d/vol/Photos\", \"$d/vol/Extra\"]"
+check "settings: manifest records file, values and checksum" 0 test "$(mq "$srun" "[m['settings']['file'], m['settings']['used'], m['settings']['replaced_by_command_line'], len(m['settings']['sha256']), len(m['collector']['settings_module_sha256'])]")" = "[\"$sd/two.env\", {\"SCAN_ROOT\": [\"$d/vol/Photos\", \"$d/vol/Extra\"], \"CATALOG\": \"$d/lr/Multi.lrcat\"}, [], 64, 64]"
+check "settings: collector.log names the file and values" 0 grep -q "SCAN_ROOT from settings file: $d/vol/Extra" "$srun/collector.log"
+check "settings: --scan-root replaces all SCAN_ROOT lines" 0 $collect --settings "$sd/two.env" --scan-root "$d/vol/Photos" --out "$work/out_set_arg"
+srun=$(onerun "$work/out_set_arg")
+check "settings: only the command-line root is scanned" 0 test "$(mq "$srun" "[m['scan_roots'], list(m['settings']['used']), m['settings']['replaced_by_command_line']]")" = "[[\"$d/vol/Photos\"], [\"CATALOG\"], [\"SCAN_ROOT\"]]"
+print -r -- 'CATALOG="$HOME/lr/Test.lrcat"' > "$sd/home.env"; print -r -- 'SCAN_ROOT="~/vol/Photos"' >> "$sd/home.env"
+check "settings: \$HOME and ~ expanded" 0 env HOME="$d" $collect --settings "$sd/home.env" --out "$work/out_set_home"
+check "settings: expanded values in the manifest" 0 test "$(mq "$(onerun "$work/out_set_home")" "m['settings']['used']")" = "{\"SCAN_ROOT\": [\"$d/vol/Photos\"], \"CATALOG\": \"$d/lr/Test.lrcat\"}"
+print -r -- "SCAN_ROOT=\"$d/\$USER/Photos\"" > "$sd/var.env"
+check "settings: other variables are not expanded" 1 $collect --settings "$sd/var.env" --skip-catalog --out "$work/out_set_var"
+cp "$work/last.out" "$sd/var.out"
+check "settings: path kept as written" 0 grep -qF "$d/\$USER/Photos" "$sd/var.out"
+print -r -- "CATALOG=\"$d/lr/Test.lrcat\"" > "$sd/noroot.env"
+check "settings: no scan root anywhere stops the run" 1 $collect --settings "$sd/noroot.env" --out "$work/out_set_bad"
+for name content in \
+    unquoted "SCAN_ROOT=$d/vol/Photos" \
+    unknown_key "SCANROOT=\"$d/vol/Photos\"" \
+    catalog_twice "CATALOG=\"$d/lr/Test.lrcat\"\nCATALOG=\"$d/lr/Multi.lrcat\"" \
+    empty_value "SCAN_ROOT=\"\"" \
+    shell_line "export SCAN_ROOT=\"$d/vol/Photos\""; do
+  printf "SCAN_ROOT=\"$d/vol/Photos\"\n$content\n" > "$sd/$name.env"
+  check "settings: $name stops the run" 1 $collect --settings "$sd/$name.env" --out "$work/out_set_bad"
+  cp "$work/last.out" "$sd/$name.out"
+  check "settings: $name is reported with its line number" 0 grep -q 'line [0-9]' "$sd/$name.out"
+done
+check "settings: missing file stops the run" 1 $collect --settings "$sd/none.env" --out "$work/out_set_bad"
+check "settings: stopped runs wrote nothing" 0 test ! -e "$work/out_set_bad"
+check "check_catalog: CATALOG from the settings file" 0 sh -c "$py -I '$repo/collector/check_catalog.py' --settings '$sd/two.env' | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
+check "check_catalog: argument replaces CATALOG" 0 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' --settings '$sd/two.env' | grep -q 'CATALOG from the command line'"
+check "check_catalog: bad settings file fails" 1 $chk --settings "$sd/unknown_key.env"
 
 # Preflight failures
 check "preflight: output inside scan root" 1 $collect $args --out "$d/vol/Photos/out"
@@ -75,6 +120,8 @@ if (( ${#run} != 1 )); then
   print "FAIL expected one run folder, found ${#run}"; exit 1
 fi
 run="${run[1]}"
+check "settings: run without a file says so" 0 grep -q 'Settings file: none' "$run/collector.log"
+check "manifest: settings null without a file" 0 test "$(mq "$run" "m['settings']")" = null
 for f in catalog.lrcat files.csv manifest.json collector.log; do
   check "run folder has $f" 0 test -f "$run/$f"
 done
@@ -476,6 +523,20 @@ check "manifest: update check recorded by psa" 0 test "$(uc "$prun")" = up_to_da
 check "manifest: direct call records not_run" 0 test "$(uc "$run")" = not_run
 check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'run collected with commit'"
 check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'run collected with commit'"
+
+# Settings file found by psa
+hm="$up/home"; mkdir -p "$hm/photo-analysis"; cp "$sd/two.env" "$hm/photo-analysis/settings.env"
+check "psa: default settings file used without arguments" 0 env -u PSA_SETTINGS HOME="$hm" zsh "$cl/psa" collect --out "$up/out_set_default"
+check "psa: manifest names the default settings file" 0 test "$(mq "$(onerun "$up/out_set_default")" "m['settings']['file']")" = "\"$hm/photo-analysis/settings.env\""
+check "psa: PSA_SETTINGS names another file" 0 env PSA_SETTINGS="$sd/home.env" HOME="$d" zsh "$cl/psa" collect --out "$up/out_set_env"
+check "psa: manifest names the PSA_SETTINGS file" 0 test "$(mq "$(onerun "$up/out_set_env")" "m['settings']['file']")" = "\"$sd/home.env\""
+check "psa: PSA_SETTINGS empty means no settings file" 1 env PSA_SETTINGS= HOME="$hm" zsh "$cl/psa" collect --out "$up/out_set_off"
+cp "$work/last.out" "$up/set_off.out"
+check "psa: says there is no scan root" 0 grep -q 'No scan root' "$up/set_off.out"
+check "psa: PSA_SETTINGS naming a missing file stops" 1 env PSA_SETTINGS="$sd/none.env" zsh "$cl/psa" collect --out "$up/out_set_off"
+check "psa: without a settings file, none is reported" 0 sh -c "env -u PSA_SETTINGS HOME='$up/nohome' zsh '$cl/psa' collect --scan-root '$d/vol/Photos' --skip-catalog --out '$up/out_set_none' 2>&1 | grep -q 'Settings file: none'"
+check "psa: check-catalog takes CATALOG from the default file" 0 sh -c "env -u PSA_SETTINGS HOME='$hm' zsh '$cl/psa' check-catalog 2>&1 | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
+check "psa: stopped settings runs wrote nothing" 0 test ! -e "$up/out_set_off"
 
 print
 if (( fails )); then print "$fails check(s) failed"; exit 1; fi

@@ -6,7 +6,8 @@ Runs on the client's Mac. Collects facts only; all interpretation happens
 on the analysis machine.
 
 Steps:
-  1. Preflight checks (stop on any failure, nothing written outside out dir)
+  1. Settings file (--settings) and preflight checks (stop on any failure,
+     nothing written outside out dir)
   2. Copy the Lightroom catalog and verify the copy
   3. Scan the photo trees, one per --scan-root (metadata only, file contents
      are not read)
@@ -69,6 +70,10 @@ CSV_COLUMNS = [
     "symlink",      # 1 if the entry is a symbolic link (not followed)
     "scan_root",    # the scan root this file was found under (absolute, NFC)
 ]
+
+# settings.py sits next to this script; python -I leaves the script's folder off sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import settings as settings_file  # noqa: E402
 
 log = logging.getLogger("collector")
 
@@ -383,10 +388,13 @@ def scan(scan_roots: List[Path], run_dir: Path) -> dict:
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Collect file and catalog data for a photo storage assessment.")
-    p.add_argument("--scan-root", required=True, type=Path, action="append", dest="scan_roots",
+    p.add_argument("--scan-root", type=Path, action="append", dest="scan_roots", default=[],
                    help="root of a photo folder tree (e.g. /Volumes/Photos/Photos); "
-                        "repeat for more roots, roots must not be nested")
-    p.add_argument("--catalog", type=Path, help="path to the .lrcat file")
+                        "repeat for more roots, roots must not be nested; "
+                        "replaces all SCAN_ROOT lines of the settings file")
+    p.add_argument("--catalog", type=Path, help="path to the .lrcat file; replaces CATALOG of the settings file")
+    p.add_argument("--settings", type=Path,
+                   help="settings file with CATALOG and SCAN_ROOT (./psa passes it when it exists)")
     p.add_argument("--out", type=Path, default=Path.home() / "photo-analysis" / "out",
                    help="base output folder (default: ~/photo-analysis/out)")
     p.add_argument("--dropbox-root", type=Path, action="append", default=[],
@@ -396,21 +404,66 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
+def apply_settings(args) -> Optional[dict]:
+    """Fill scan roots and catalog from the settings file where the command
+    line gave none. Returns the manifest record, or None without a file."""
+    if args.settings is None:
+        return None
+    s = settings_file.load(args.settings)  # SettingsError stops the run
+    used, replaced = {}, []
+    if s.get_list("SCAN_ROOT"):
+        if args.scan_roots:
+            replaced.append("SCAN_ROOT")
+        else:
+            args.scan_roots = [Path(r) for r in s.get_list("SCAN_ROOT")]
+            used["SCAN_ROOT"] = s.get_list("SCAN_ROOT")
+    if s.get("CATALOG"):
+        if args.catalog:
+            replaced.append("CATALOG")
+        else:
+            args.catalog = Path(s.get("CATALOG"))
+            used["CATALOG"] = s.get("CATALOG")
+    return {"file": str(s.path), "sha256": s.sha256, "used": used,
+            "replaced_by_command_line": replaced}
+
+
+def log_settings(record: Optional[dict], out: logging.Logger) -> None:
+    if record is None:
+        out.info("Settings file: none")
+        return
+    out.info("Settings file: %s", record["file"])
+    for key, value in record["used"].items():
+        for v in (value if isinstance(value, list) else [value]):
+            out.info("  %s from settings file: %s", key, v)
+    for key in record["replaced_by_command_line"]:
+        out.info("  %s from the command line; the settings file value is not used", key)
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
-    args.scan_roots = [r.expanduser() for r in args.scan_roots]
-    args.out = args.out.expanduser()
-    if args.catalog:
-        args.catalog = args.catalog.expanduser()
-
-    host = socket.gethostname().split(".")[0]
-    run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + host
-    run_dir = args.out / run_id
 
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S"))
     log.addHandler(console)
     log.setLevel(logging.INFO)
+
+    try:
+        settings_record = apply_settings(args)
+    except (settings_file.SettingsError, UnicodeDecodeError) as e:
+        log.error("%s", e)
+        return 1
+    if not args.scan_roots:
+        log.error("No scan root: give --scan-root or SCAN_ROOT in the settings file")
+        return 1
+    args.scan_roots = [r.expanduser() for r in args.scan_roots]
+    args.out = args.out.expanduser()
+    if args.catalog:
+        args.catalog = args.catalog.expanduser()
+    log_settings(settings_record, log)
+
+    host = socket.gethostname().split(".")[0]
+    run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + host
+    run_dir = args.out / run_id
 
     try:
         facts = preflight(args, run_dir, args.dropbox_root)
@@ -426,6 +479,12 @@ def main(argv=None) -> int:
     script = Path(__file__).resolve()
     started = now_iso()
     log.info("Collector %s, run %s", COLLECTOR_VERSION, run_id)
+    # The settings lines went to the console before preflight; repeat them in the log file
+    file_log = logging.getLogger("collector.file")
+    file_log.propagate = False
+    file_log.addHandler(fh)
+    file_log.setLevel(logging.INFO)
+    log_settings(settings_record, file_log)
     log.info("Preflight passed")
 
     try:
@@ -460,6 +519,7 @@ def main(argv=None) -> int:
                 "version": COLLECTOR_VERSION,
                 "git_commit": git_commit(script.parent),
                 "script_sha256": sha256_file(script),
+                "settings_module_sha256": settings_file.module_sha256(),
                 # set by ./psa; absent when the collector is called directly
                 "update_check": {
                     "status": os.environ.get("PSA_UPDATE_STATUS", "not_run"),
@@ -471,6 +531,8 @@ def main(argv=None) -> int:
                 "macos": platform.mac_ver()[0] or platform.platform(),
                 "python": platform.python_version(),
             },
+            # settings file and the values taken from it; null without a file
+            "settings": settings_record,
             "scan_roots": [nfc(os.path.abspath(r)) for r in args.scan_roots],
             "scan_root_in_dropbox": facts.get("scan_root_in_dropbox"),
             "dropbox_roots": facts.get("dropbox_roots", []),

@@ -13,10 +13,10 @@ git clone https://github.com/teunispolak/photo-storage-analyzer
 cd photo-storage-analyzer
 ```
 
-On the client Mac, with Lightroom closed:
+On the client Mac, with Lightroom closed, and the catalog and scan roots in `~/photo-analysis/settings.env` (see the [collector runbook](docs/collector.md)):
 
 ```
-./psa collect --scan-root "/Volumes/<drive>/<photo root>" --catalog "<path>.lrcat"
+./psa collect
 ```
 
 On the analysis machine (requires `brew install duckdb`):
