@@ -44,24 +44,29 @@ Times:
 - The run ID is in UTC (`...Z`), for sorting.
 - File dates (`mtime`, `btime`) are UTC; Lightroom capture times are the camera's local time. This only matters for files dated within an hour or two of New Year.
 
+## Scope
+
+The scan root is the scope: every row in the `photos` table, the pivot file and the reports is a file under the scan root. The catalog is used to look up those files (capture date, catalogued or not). Catalog entries outside the scan root are not analysed; they are counted once, in `join_check.csv` and `reports/reconciliation.csv`.
+
 ## Join check
 
 | Metric | Read as |
 |---|---|
 | `matched` | files both on disk and in the catalog |
 | `disk_only` | files on disk the catalog does not know |
-| `catalog_only` | files the catalog knows that are not on disk |
+| `catalog_only` | files the catalog expects under the scan root that are not on disk |
+| `catalog_outside_scan_root` | catalog entries outside the scan root; not analysed |
 | `matched_case_only` | matched only after ignoring upper and lower case |
 | `catalog_paths_nfc_changed` | catalog paths with a different Unicode form, matched after normalizing |
 | `catalog_paths_prefix_mapped` | catalog paths changed by `--path-from`/`--path-to` |
 | `virtual_copies_excluded` | virtual copies left out; they share the photo's file |
 | `date_source_catalog`, `date_source_mtime` | files dated by catalog capture time, or by file date as fallback |
 
-`matched` = 0 with many `catalog_only` usually means the catalog stores the photos under another path than the scan root: check the collector log for `does not overlap`, and use `--path-from`/`--path-to`.
+`matched` = 0 with a large `catalog_outside_scan_root` usually means the catalog stores the photos under another path than the scan root: check the collector log for `does not overlap`, and use `--path-from`/`--path-to`.
 
 ## Pivot workbook
 
-`photos_pivot.xlsx` has one row per file on disk or in the catalog. Its columns and their meaning are listed in [`analysis/pivot_columns.csv`](../analysis/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
+`photos_pivot.xlsx` has one row per file under the scan root, found in the filesystem, the catalog or both (`source`). Its columns and their meaning are listed in [`analysis/pivot_columns.csv`](../analysis/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
 
 Keep your pivots in a separate workbook, so a new run only needs a refresh. Set it up once, in Excel for Microsoft 365 for Mac:
 
@@ -73,18 +78,18 @@ Keep your pivots in a separate workbook, so a new run only needs a refresh. Set 
 After each `./psa analyse` with the default output, Data > Refresh All updates the table and the pivots.
 
 Reconciliation, the same split as `reports/reconciliation.csv`:
-- Rows: `status`, `location`, `catalog_role`
+- Rows: `source`, `catalog_role`
 - Values: Count of `name`, Sum of `size_mb`
 
-The grand total is all files known to the scan or the catalog; check it against the first line of `reconciliation.csv`.
+The grand total is all files in scope; check it against the first line of `reconciliation.csv`.
 
 Example, files on disk that Lightroom does not know:
-- Filters: `type_group` = raw, `status` = disk only
+- Filters: `type_group` = raw, `source` = filesystem only
 - Rows: `top_folder`, `folder`
 - Columns: `hint`
 - Values: Count of `name`, Sum of `size_mb`
 
-`hint` = `moved?`: Lightroom knows a file with that name at `catalog_folder` (Find Missing Folder in Lightroom). `dng original?`: the raw original next to its DNG. Empty: not imported.
+`hint` = `moved?`: the catalog has a file with that name at `catalog_folder`, which may be outside the scan root. Outside it, this is usually a copy of the same photo in another tree; inside it, the file may have been moved outside Lightroom (Find Missing Folder). `dng original?`: the raw original next to its DNG. Empty: not imported.
 
 ## Regression check
 
@@ -135,6 +140,6 @@ It asks for confirmation, keeps the previous analysis as `analysis.<timestamp>`,
 | `size_buckets` | by file size bucket |
 | `not_catalogued` | files on disk not in the catalog, by type and year |
 | `missing_from_disk` | files in the catalog not on disk, one row per file |
-| `reconciliation` | all files, split level by level: on disk (matched, disk only) and catalog only (outside or in the scan root), each by catalog role; each line adds up to its parent; virtual copies on a separate line |
+| `reconciliation` | all files in scope, split level by level: filesystem (filesystem and catalog, by catalog role; filesystem only) and catalog only (by catalog role); each line adds up to its parent; catalog entries outside the scan root and virtual copies on separate lines |
 
 Volume reports count files on disk; units are decimal (1 GB = 10^9 bytes). The output holds customer data.

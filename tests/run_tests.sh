@@ -127,7 +127,7 @@ else
   expected=(
     disk_files 9  catalog_photos 4  catalog_attached 2  catalog_duplicate_keys 0
     virtual_copies_excluded 1  matched 5  matched_photo 3  matched_attached 2
-    disk_only 4  catalog_only 1  matched_case_only 1  catalog_paths_nfc_changed 1
+    disk_only 4  catalog_only 1  catalog_outside_scan_root 0  matched_case_only 1  catalog_paths_nfc_changed 1
     catalog_paths_prefix_mapped 0  date_source_catalog 5  date_source_mtime 5  date_source_none 0
   )
   metric_is() { $py -I -c "
@@ -175,7 +175,9 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   # Reconciliation report
   check "reconciliation: levels add up and match join_check" 0 $py -I "$repo/tests/check_reconciliation.py" "$ana"
   check "reconciliation: all catalog files outside the scan root (prefix mapping)" 0 $py -I "$repo/tests/check_reconciliation.py" "$work/ana_mapped"
-  check "reconciliation: mapped run puts 6 catalog files outside the scan root" 0 test "$(grep ',catalog only/outside scan root,' "$work/ana_mapped/reports/reconciliation.csv" | cut -d, -f5)" = 6
+  check "reconciliation: mapped run counts 6 catalog entries outside the scan root" 0 test "$(grep ',catalog entries outside the scan root (not analysed),' "$work/ana_mapped/reports/reconciliation.csv" | cut -d, -f5)" = 6
+  check "scope: mapped run has no catalog files in scope" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_only 0
+  check "scope: mapped run counts them outside the scan root" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_outside_scan_root 6
 
   # Pivot file (photos_pivot.xlsx)
   dq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$@"; }
@@ -187,20 +189,21 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "pivot: one row per file" 0 test "$(dq -c "LOAD excel; SELECT count(*) FROM read_xlsx('$ana/photos_pivot.xlsx', sheet = 'photos', all_varchar = true)")" = 10
   check "pivot: files in the scan root are (root)" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder FROM photos_pivot WHERE name = 'root.txt'")" = "(root)|(root)"
   check "pivot: folder is relative, folder_path is full" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder || '|' || (folder_path = '$d/vol/Photos/2014/Trip') FROM photos_pivot WHERE name = 'IMG_0001.CR2'")" = "2014|2014/Trip|true"
-  check "pivot: status values" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(status || '=' || n, ' ' ORDER BY status) FROM (SELECT status, count(*) AS n FROM photos_pivot GROUP BY 1)")" = "catalog only=1 disk only=4 matched=5"
-  check "pivot: catalog files outside the scan root" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) FILTER (WHERE top_folder = '(outside scan root)' AND folder IS NULL) || '/' || count(*) FILTER (WHERE status = 'catalog only') FROM photos_pivot")" = "6/6"
-  check "pivot: location column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT location, ',' ORDER BY location) FROM photos_pivot")" = "in scan root"
-  check "pivot: location outside scan root in the mapped run" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE location = 'outside scan root' AND top_folder = '(outside scan root)'")" = 6
+  check "pivot: source values" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(source || '=' || n, ' ' ORDER BY source) FROM (SELECT source, count(*) AS n FROM photos_pivot GROUP BY 1)")" = "catalog only=1 filesystem and catalog=5 filesystem only=4"
+  check "scope: mapped run has only scanned files as rows" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) || '/' || count(*) FILTER (WHERE source = 'catalog only') FROM photos_pivot")" = "9/0"
+  check "pivot: scan_root column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') FROM photos_pivot")" = "$d/vol/Photos"
+  check "pivot: every row has the scan root" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE scan_root IS NULL")" = 0
 
   # Hints, with planted cases on a copy of the database
   mkdir -p "$work/hints" && cp "$ana/analysis.duckdb" "$work/hints/"
   check "pivot: hints computed on planted cases" 0 sh -c "cd '$work/hints' && env -u AI_AGENT -u CLAUDECODE duckdb -bail analysis.duckdb -c \"
     INSERT INTO photos (path, parent, name, ext, size_bytes, on_disk, in_catalog, type_group, catalog_role) VALUES
       ('$d/vol/Photos/2019/IMG_9.CR2', '2019', 'IMG_9.CR2', 'cr2', 25000000, true, false, 'raw', NULL),
-      ('$d/vol/Photos/2018/IMG_9.CR2', NULL, 'IMG_9.CR2', 'cr2', NULL, false, true, 'raw', 'photo'),
       ('$d/vol/Photos/2015/IMG_8.CR2', '2015', 'IMG_8.CR2', 'cr2', 24000000, true, false, 'raw', NULL),
-      ('$d/vol/Photos/2015/IMG_8.dng', '2015', 'IMG_8.dng', 'dng', 26000000, true, true, 'raw', 'photo')\" -c '.read $repo/analysis/30_pivot.sql' > /dev/null"
-  check "pivot: moved file gets moved? and the catalog folder" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint || '|' || (catalog_folder = '$d/vol/Photos/2018') FROM photos_pivot WHERE name = 'IMG_9.CR2' AND status = 'disk only'")" = "moved?|true"
+      ('$d/vol/Photos/2015/IMG_8.dng', '2015', 'IMG_8.dng', 'dng', 26000000, true, true, 'raw', 'photo');
+    INSERT INTO catalog_entries (file_id, catalog_role, path, match_key, in_scope) VALUES
+      (900, 'photo', '/old tree/2018/IMG_9.CR2', '/old tree/2018/img_9.cr2', false)\" -c '.read $repo/analysis/30_pivot.sql' > /dev/null"
+  check "pivot: moved? also when the name is only outside the scan root" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint || '|' || catalog_folder FROM photos_pivot WHERE name = 'IMG_9.CR2' AND source = 'filesystem only'")" = "moved?|/old tree/2018"
   check "pivot: raw next to its DNG gets dng original?" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint FROM photos_pivot WHERE name = 'IMG_8.CR2'")" = "dng original?"
   check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 2
 

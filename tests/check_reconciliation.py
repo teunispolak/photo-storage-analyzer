@@ -2,7 +2,7 @@
 """
 Check reports/reconciliation.csv of an analysis output folder:
 - every line's files (and bytes, where present) equal the sum of its children
-- the lines match join_check.csv
+- the lines match join_check.csv, and the catalog side adds up
 Usage: check_reconciliation.py <analysis output folder>. Exit 0 when all hold.
 """
 
@@ -33,25 +33,24 @@ def main() -> int:
 
     expect = {
         "all files": jc["matched"] + jc["disk_only"] + jc["catalog_only"],
-        "on disk": jc["disk_files"],
-        "on disk/matched": jc["matched"],
-        "on disk/matched/photo": jc["matched_photo"],
-        "on disk/matched/attached": jc["matched_attached"],
-        "on disk/disk only": jc["disk_only"],
+        "filesystem": jc["disk_files"],
+        "filesystem/filesystem and catalog": jc["matched"],
+        "filesystem/filesystem and catalog/photo": jc["matched_photo"],
+        "filesystem/filesystem and catalog/attached": jc["matched_attached"],
+        "filesystem/filesystem only": jc["disk_only"],
         "catalog only": jc["catalog_only"],
+        "catalog entries outside the scan root (not analysed)": jc["catalog_outside_scan_root"],
         "virtual copies (not files)": jc["virtual_copies_excluded"],
     }
     for cat, val in expect.items():
         if files.get(cat) != val:
             problems.append(f"{cat}: {files.get(cat)} != join_check {val}")
-    cat_photo = files["catalog only/outside scan root/photo"] + files["catalog only/in scan root/photo"]
-    cat_att = files["catalog only/outside scan root/attached"] + files["catalog only/in scan root/attached"]
-    if cat_photo != jc["catalog_photos"] - jc["matched_photo"]:
-        problems.append("catalog-only photos != catalog_photos - matched_photo")
-    if cat_att != jc["catalog_attached"] - jc["matched_attached"]:
-        problems.append("catalog-only attached != catalog_attached - matched_attached")
-    if bytes_.get("on disk") != jc["disk_bytes"]:
-        problems.append("on disk bytes != disk_bytes")
+    # the catalog side: every catalog entry is matched, catalog only in scope, or outside the scan root
+    entries = jc["catalog_photos"] + jc["catalog_attached"] - jc["catalog_duplicate_keys"]
+    if entries != jc["matched"] + jc["catalog_only"] + jc["catalog_outside_scan_root"]:
+        problems.append("catalog entries != matched + catalog only + outside the scan root")
+    if bytes_.get("filesystem") != jc["disk_bytes"]:
+        problems.append("filesystem bytes != disk_bytes")
 
     for p in problems:
         print(p)
