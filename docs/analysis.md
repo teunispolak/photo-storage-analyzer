@@ -8,12 +8,28 @@ Runs on the analysis machine. Starts from the received run folder produced by th
 - Python 3.9 or newer and git
 - The repository: `git clone https://github.com/teunispolak/photo-storage-analyzer`, run the commands below from inside it
 
+## Folders
+
+Each client and each machine at a client has its own folder; machines are analysed separately.
+
+```
+~/photo-analysis/clients/<client>/<machine>/
+  runs/        received run folders (put them here; the analysis does not move them)
+  analysis/    one folder per analysed run
+  latest/      photos_pivot.xlsx of the last analysed run, for this machine's workbook
+  pivots.xlsx  your workbook for this machine
+```
+
+Client and machine come from the run's manifest; the run folder name starts with them, e.g. `acme_anna_20261118T091500Z`. `PSA_CLIENTS_DIR` moves the `clients` folder elsewhere.
+
 ## Steps
 
-1. Analyse the received run folder:
+1. Put the received run folder in `~/photo-analysis/clients/<client>/<machine>/runs/` and analyse it:
    ```
-   ./psa analyse <received run folder>
+   ./psa analyse ~/photo-analysis/clients/<client>/<machine>/runs/<run folder>
    ```
+   Runs collected before client and machine were recorded need them as arguments: `--client <client> --machine <machine>`.
+
    This verifies the run against its manifest, loads and joins it, writes the reports and prints a summary. It stops before the join if verification fails, for example after an incomplete transfer.
 2. Read `join_check.csv` before the reports (see below).
 3. Open the reports in `reports/`.
@@ -24,7 +40,8 @@ Runs on the analysis machine. Starts from the received run folder produced by th
 
 | Option | Purpose |
 |---|---|
-| `--out <folder>` | output folder (default `~/photo-analysis/analysis/<run_id>`, or under `$PSA_ANALYSIS_DIR` if set) |
+| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<run_id>`; `latest/` is then left alone |
+| `--client <client> --machine <machine>` | client and machine for a run collected without them; must match the manifest when it has them |
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 
@@ -36,12 +53,12 @@ The received run folder is only read, never changed. The catalog is read from a 
 |---|---|
 | `analysis.duckdb` | DuckDB database with the `photos` table, one row per file on disk or in the catalog |
 | `join_check.csv` | counts to check the join |
-| `photos_pivot.xlsx` | flat file for pivot tables, one row per file; with the default output also copied to `~/photo-analysis/analysis/latest/` |
+| `photos_pivot.xlsx` | flat file for pivot tables, one row per file; with the default output also copied to the machine's `latest/` |
 | `reports/*.csv` | one CSV per report, each starting with `run_id` and `scan_date` |
 
 Times:
 - `scan_date` is the client's local time with its UTC offset, e.g. `2026-11-16 11:22:08+01:00`. Runs collected before this was recorded show UTC with `+00:00`.
-- The run ID is in UTC (`...Z`), for sorting.
+- The run ID is `<client>_<machine>_<UTC timestamp>`; runs collected before labels were recorded are `<UTC timestamp>-<host>`.
 - File dates (`mtime`, `btime`) are UTC; Lightroom capture times are the camera's local time. This only matters for files dated within an hour or two of New Year.
 
 ## Scope
@@ -70,10 +87,10 @@ Runs collected before multiple scan roots were supported analyse the same way, w
 
 `photos_pivot.xlsx` has one row per file under the scan root, found in the filesystem, the catalog or both (`source`). Its columns and their meaning are listed in [`analysis/pivot_columns.csv`](../analysis/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
 
-Keep your pivots in a separate workbook, so a new run only needs a refresh. Set it up once, in Excel for Microsoft 365 for Mac:
+Keep your pivots in a separate workbook per machine, so a new run only needs a refresh. Set it up once per machine, in Excel for Microsoft 365 for Mac:
 
-1. Create a new workbook, for example `~/photo-analysis/pivots.xlsx`.
-2. Data > Get Data (Power Query) > Excel workbook, and choose `~/photo-analysis/analysis/latest/photos_pivot.xlsx`.
+1. Create a new workbook `~/photo-analysis/clients/<client>/<machine>/pivots.xlsx`, or copy another machine's workbook there and change its source in step 2 (Data > Get Data > Data Source Settings > Change Source).
+2. Data > Get Data (Power Query) > Excel workbook, and choose `~/photo-analysis/clients/<client>/<machine>/latest/photos_pivot.xlsx`.
 3. Select the sheet `photos` and load it to a table on a new sheet. Do not load it to the Data Model: Excel for Mac cannot refresh that.
 4. Data > Get Data (Power Query) > Launch Power Query Editor, select the query `photos`, and under Applied Steps delete `Changed column type` (right-click > Delete). Then Home > Close & Load. Excel adds that step automatically and it names every column; when a column is later removed or renamed, the refresh stops with an error. The pivot file already stores numbers as numbers, so the step is not needed.
 5. Click inside the table, then Insert > PivotTable.

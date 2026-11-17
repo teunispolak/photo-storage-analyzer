@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./psa check-catalog [<catalog.lrcat>] [--show-roots]
-#   ./psa collect [--scan-root <folder>]... [--catalog <catalog.lrcat>] [options]
+#   ./psa collect [--client <c> --machine <m>] [--scan-root <folder>]... [--catalog <file>] [options]
 #   ./psa analyse <run folder> [options]
 #   ./psa regress [--full] [--refresh]
 #   ./psa status
@@ -18,7 +18,7 @@
 #
 # collect and check-catalog read the settings file ~/photo-analysis/settings.env
 # when it exists, or the file named in PSA_SETTINGS (PSA_SETTINGS="" for none):
-# CATALOG and SCAN_ROOT for arguments not given. See docs/collector.md.
+# CLIENT, MACHINE, CATALOG and SCAN_ROOT for arguments not given. See docs/collector.md.
 
 set -uo pipefail
 

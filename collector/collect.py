@@ -13,7 +13,7 @@ Steps:
      are not read)
   4. Write manifest.json last; its presence marks a complete run
 
-Output: <out>/<run_id>/
+Output: <out>/<run_id>/, run_id = <client>_<machine>_<UTC timestamp>
   catalog.lrcat    copy of the Lightroom catalog
   files.csv        one row per file under the scan roots
   manifest.json    run metadata, counts, checksums
@@ -393,6 +393,8 @@ def parse_args(argv=None):
                         "repeat for more roots, roots must not be nested; "
                         "replaces all SCAN_ROOT lines of the settings file")
     p.add_argument("--catalog", type=Path, help="path to the .lrcat file; replaces CATALOG of the settings file")
+    p.add_argument("--client", help="client name; replaces CLIENT of the settings file")
+    p.add_argument("--machine", help="machine within the client; replaces MACHINE of the settings file")
     p.add_argument("--settings", type=Path,
                    help="settings file with CATALOG and SCAN_ROOT (./psa passes it when it exists)")
     p.add_argument("--out", type=Path, default=Path.home() / "photo-analysis" / "out",
@@ -417,6 +419,13 @@ def apply_settings(args) -> Optional[dict]:
         else:
             args.scan_roots = [Path(r) for r in s.get_list("SCAN_ROOT")]
             used["SCAN_ROOT"] = s.get_list("SCAN_ROOT")
+    for key, attr in (("CLIENT", "client"), ("MACHINE", "machine")):
+        if s.get(key):
+            if getattr(args, attr):
+                replaced.append(key)
+            else:
+                setattr(args, attr, s.get(key))
+                used[key] = s.get(key)
     if s.get("CATALOG"):
         if args.catalog:
             replaced.append("CATALOG")
@@ -455,6 +464,14 @@ def main(argv=None) -> int:
     if not args.scan_roots:
         log.error("No scan root: give --scan-root or SCAN_ROOT in the settings file")
         return 1
+    for key, attr in (("CLIENT", "client"), ("MACHINE", "machine")):
+        value = getattr(args, attr)
+        if not value:
+            log.error("No %s: give --%s or %s in the settings file", attr, attr, key)
+            return 1
+        if settings_file.label_error(f"--{attr}", value):
+            log.error("%s", settings_file.label_error(f"--{attr}", value))
+            return 1
     args.scan_roots = [r.expanduser() for r in args.scan_roots]
     args.out = args.out.expanduser()
     if args.catalog:
@@ -462,7 +479,8 @@ def main(argv=None) -> int:
     log_settings(settings_record, log)
 
     host = socket.gethostname().split(".")[0]
-    run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + host
+    # client and machine first, so the folder name says whose run it is
+    run_id = f"{args.client}_{args.machine}_" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = args.out / run_id
 
     try:
@@ -479,6 +497,7 @@ def main(argv=None) -> int:
     script = Path(__file__).resolve()
     started = now_iso()
     log.info("Collector %s, run %s", COLLECTOR_VERSION, run_id)
+    log.info("Client %s, machine %s, host %s", args.client, args.machine, host)
     # The settings lines went to the console before preflight; repeat them in the log file
     file_log = logging.getLogger("collector.file")
     file_log.propagate = False
@@ -511,6 +530,8 @@ def main(argv=None) -> int:
         manifest = {
             "schema": MANIFEST_SCHEMA,
             "run_id": run_id,
+            "client": args.client,
+            "machine": args.machine,
             "status": "complete",
             "started": started,
             "finished": utc_iso(finished_ts),
