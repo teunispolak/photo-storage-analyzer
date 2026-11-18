@@ -39,5 +39,6 @@ Builds sample data in `$TMPDIR/photo-storage-analyzer-tests` (or `$TEST_WORK`), 
 
 ## Docs
 
+- [Extract guide](docs/extract-guide.md): step-by-step instructions for the client
 - [Extract runbook](docs/extract.md): extracting on the client Mac
 - [Analyse runbook](docs/analyse.md): analysing the received extract on the analysis machine

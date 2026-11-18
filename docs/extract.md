@@ -2,6 +2,8 @@
 
 Runs on the client Mac. Produces an extract for the [Analyse runbook](analyse.md).
 
+For the client there is a step-by-step [Extract guide](extract-guide.md). With it, the client sends you the locations of their catalog and photo folder; you write their `settings.env` from those (see [Settings file](#settings-file)) and send it back.
+
 ## Terms
 
 | Term | Meaning |
