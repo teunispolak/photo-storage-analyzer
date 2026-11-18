@@ -35,7 +35,12 @@ check() {  # check <description> <expected exit> <command...>
 if [[ -e "$work" ]]; then
   print "tests: $work exists from an earlier run; remove it first"; exit 1
 fi
-mkdir -p "$work"
+mkdir -p "$work/real"
+# Work through a symlink on every machine, as macOS does ($TMPDIR is under
+# /var -> /private/var), so a test that compares an unresolved path with a
+# resolved one fails here too, not only on macOS CI
+ln -s real "$work/link"; base="$work"; work="$work/link"
+check "setup: work folder is reached through a symlink" 0 test "${work:A}" != "$work"
 $py -I "$repo/tests/make_fixture.py" "$work/data" > /dev/null || exit 1
 d="$work/data"
 args=(--scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat")
@@ -321,17 +326,18 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
   check "clients: second machine of another client" 0 $anash_c "$(oneext "$work/out_set")"
   check "clients: its own latest" 0 test -f "$cl_dir/acme/anna/latest/photos_pivot.xlsx"
   check "clients: other machine's latest unchanged" 0 cmp -s "$work/latest_m1.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
-  # Filing: the first default analysis copied the extract into its client and machine folder
+  # Filing: the first default analysis copied the extract into its client and machine folder.
+  # analyse.sh prints resolved paths (${x:A}); compare with those
   fext="$cl_dir/test/m1/extracts/${ext:t}"
   check "filing: copy filed under client/machine/extracts" 0 test -f "$fext/manifest.json"
   check "filing: copy verifies" 0 $py -I "$repo/analyse/verify.py" "$fext"
   check "filing: copy is complete, no partial copy left" 0 test "$(ls "$cl_dir/test/m1/extracts")" = "${ext:t}"
   check "filing: original unchanged" 0 test "$(cd "$ext" && ls -lR | cksum)" = "$(cat "$work/ext_before_filing.sum")"
-  check "filing: output says the original can be removed" 0 grep -q "the original $ext can be removed" "$work/clients_m1.out"
-  check "filing: analysis reads the filed copy" 0 grep -qF "analysing the filed copy $fext" "$work/clients_m1.out"
+  check "filing: output says the original can be removed" 0 grep -qF "the original ${ext:A} can be removed" "$work/clients_m1.out"
+  check "filing: analysis reads the filed copy" 0 grep -qF "analysing the filed copy ${fext:A}" "$work/clients_m1.out"
   check "filing: same extract again stops" 1 $anash_c "$ext" --replace
   cp "$work/last.out" "$work/filing_again.out"
-  check "filing: names the filed copy" 0 grep -qF "already filed at $fext" "$work/filing_again.out"
+  check "filing: names the filed copy" 0 grep -qF "already filed at ${fext:A}" "$work/filing_again.out"
   check "filing: filed extract analyses in place" 0 $anash_c "$fext" --replace
   cp "$work/last.out" "$work/filing_inplace.out"
   check "filing: in place, nothing copied" 1 grep -q 'filing a copy' "$work/filing_inplace.out"
@@ -593,4 +599,4 @@ check "psa: stopped settings runs wrote nothing" 0 test ! -e "$up/out_set_off"
 
 print
 if (( fails )); then print "$fails check(s) failed"; exit 1; fi
-print "all checks passed (sample data kept in $work)"
+print "all checks passed (sample data kept in $base)"
