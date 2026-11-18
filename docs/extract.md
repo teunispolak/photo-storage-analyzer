@@ -40,9 +40,9 @@ Runs on the client Mac. Produces an extract for the [Analyse runbook](analyse.md
    ```
    It prints the settings file and the values it took from it.
 
-   The extract goes to `~/photo-analysis/extracts/<extract ID>/`; `--out` changes the base folder. The output folder must not be inside a scan root or a Dropbox folder; preflight checks this.
+   The extract goes to `~/photo-analysis/extracts/<extract ID>/`, the inbox the analysis files from; `--out` or `PSA_EXTRACTS_DIR` changes the base folder. The output folder must not be inside a scan root or a Dropbox folder; preflight checks this.
 4. When the log shows `Lightroom may be restarted now`, Lightroom can be reopened. The scan reads metadata only.
-5. Transfer the extract `~/photo-analysis/extracts/<extract ID>/` to the analysis machine.
+5. Transfer the extract `~/photo-analysis/extracts/<extract ID>/` to the analysis machine, into its inbox `~/photo-analysis/extracts/`. On the analysis machine itself, it is there already.
 6. After the analysis has verified the received extract, the extract on the client Mac can be removed. Nothing is removed automatically.
 
 The first time, macOS asks to allow Terminal access to the removable volume. Allow it.
@@ -68,7 +68,7 @@ The manifest records the file, its checksum, the values taken from it and the ke
 | `--client <client>`, `--machine <machine>` | client and machine labels; replace the settings file's `CLIENT` and `MACHINE` |
 | `--scan-root <folder>` | photo folder tree (repeatable); replaces the settings file's `SCAN_ROOT` lines |
 | `--catalog <file>` | the `.lrcat` file; replaces the settings file's `CATALOG` |
-| `--out <folder>` | base output folder (default `~/photo-analysis/extracts`) |
+| `--out <folder>` | base output folder (default `$PSA_EXTRACTS_DIR`, or `~/photo-analysis/extracts`) |
 | `--dropbox-root <folder>` | extra Dropbox folder to keep output out of (repeatable) |
 | `--skip-catalog` | scan only, no catalog copy |
 

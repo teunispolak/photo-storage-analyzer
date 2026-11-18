@@ -398,8 +398,10 @@ def parse_args(argv=None):
     p.add_argument("--machine", help="machine within the client; replaces MACHINE of the settings file")
     p.add_argument("--settings", type=Path,
                    help="settings file with CATALOG and SCAN_ROOT (./psa passes it when it exists)")
-    p.add_argument("--out", type=Path, default=Path.home() / "photo-analysis" / "extracts",
-                   help="base output folder (default: ~/photo-analysis/extracts)")
+    p.add_argument("--out", type=Path,
+                   default=Path(os.environ.get("PSA_EXTRACTS_DIR") or Path.home() / "photo-analysis" / "extracts"),
+                   help="base output folder (default: $PSA_EXTRACTS_DIR or ~/photo-analysis/extracts, "
+                        "the inbox ./psa analyse files from)")
     p.add_argument("--dropbox-root", type=Path, action="append", default=[],
                    help="extra Dropbox folder to treat as off-limits for output (repeatable)")
     p.add_argument("--skip-catalog", action="store_true",

@@ -5,10 +5,12 @@
 #   ./psa analyse <extract> [--out <folder>] [--replace]
 #                 [--path-from <prefix> --path-to <prefix>]
 #
-#   <extract>     received extract folder (manifest.json, catalog.lrcat, files.csv),
-#                 e.g. a download. Without --out it is filed first: copied to
+#   <extract>     extract folder (manifest.json, catalog.lrcat, files.csv), normally
+#                 in the inbox $PSA_EXTRACTS_DIR. Without --out it is filed first:
+#                 copied to
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/extracts/<extract ID>/
-#                 verified there, and analysed from there; the original is left as is
+#                 verified there, and analysed from there. An extract from the inbox
+#                 is then removed from it; one from elsewhere is left as is
 #   --out         output folder, and no filing; default, by client and machine:
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/analysis/<extract ID>/
 #                 with photos_pivot.xlsx also copied to
@@ -20,6 +22,8 @@
 #                 another name than the catalog expects
 #   -h, --help    show this usage
 #
+#   PSA_EXTRACTS_DIR inbox: where ./psa extract writes and received extracts go
+#                    (default: ~/photo-analysis/extracts)
 #   PSA_CLIENTS_DIR  base folder for client output (default: ~/photo-analysis/clients)
 #
 # Steps: verify -> load -> join -> pivot file -> reports -> summary.
@@ -27,8 +31,9 @@
 # temporary folder (an APFS clone where possible), because opening a
 # Lightroom catalog makes SQLite create side files next to it. The temporary
 # folder is removed when analyse.sh ends. Output: analysis.duckdb, join_check.csv,
-# photos_pivot.xlsx, reports/*.csv. Nothing is deleted or overwritten outside
-# the output folder; an interrupted filing copy is removed.
+# photos_pivot.xlsx, reports/*.csv. Nothing is overwritten outside the output
+# folder. Removed: an extract from the inbox once its filed copy verifies, and
+# an interrupted filing copy.
 
 set -euo pipefail
 
@@ -122,7 +127,14 @@ if [[ -z "$out" ]]; then
     python3 -I "$repo/analyse/verify.py" "$part" > /dev/null || die "the filed copy does not verify; nothing filed"
     mv "$part" "$filed" || die "cannot move the copy to $filed"
     cleanup=("${(@)cleanup:#$part}")
-    print "analyse: filed; the original $extract_dir can be removed"
+    inbox="${PSA_EXTRACTS_DIR:-$HOME/photo-analysis/extracts}"
+    if [[ "${extract_dir:h}" == "${inbox:A}" ]]; then
+      # The inbox holds only extracts still to be analysed; the copy has verified
+      rm -rf -- "$extract_dir" || die "filed, but cannot remove $extract_dir from the inbox"
+      print "analyse: filed; removed from the inbox $inbox"
+    else
+      print "analyse: filed; the original $extract_dir can be removed"
+    fi
     extract_dir="$filed"
     print "analyse: analysing the filed copy $extract_dir"
   fi
