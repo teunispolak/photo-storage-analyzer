@@ -1,6 +1,6 @@
-# Analysis runbook
+# Analyse runbook
 
-Runs on the analysis machine. Starts from a collection received from the client, made with the [collector runbook](collector.md).
+Runs on the analysis machine. Starts from an extract received from the client, made with the [Extract runbook](extract.md).
 
 ## Terms
 
@@ -8,8 +8,8 @@ Runs on the analysis machine. Starts from a collection received from the client,
 |---|---|
 | client | the customer; one name for all their machines |
 | machine | one Mac at a client, with its own disk and Lightroom catalog |
-| collection | what one run of the collector produces: a folder with `manifest.json`, `catalog.lrcat`, `files.csv` and `collector.log`. Its ID is `<client>_<machine>_<UTC timestamp>`, `run_id` in the files |
-| analysis | what `./psa analyse` produces from one collection: a folder with `analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx` and `reports/` |
+| extract | what `./psa extract` produces on one machine: metadata of the photo files and a copy of the Lightroom catalog, in a folder with `manifest.json`, `catalog.lrcat`, `files.csv` and `extract.log`. No photos. Its ID, `extract_id` in the files, is `<client>_<machine>_<UTC timestamp>` |
+| analysis | what `./psa analyse` produces from one extract: a folder with `analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx` and `reports/` |
 
 ## Prerequisites
 
@@ -23,38 +23,37 @@ Each client and each machine at a client has its own folder; machines are analys
 
 ```
 ~/photo-analysis/clients/<client>/<machine>/
-  collections/ received collections (put them here; the analysis does not move them)
-  analysis/    one analysis per collection
+  extracts/    received extracts (put them here; the analysis does not move them)
+  analysis/    one analysis per extract
   latest/      photos_pivot.xlsx of the last analysis, for this machine's workbook
   pivots.xlsx  your workbook for this machine
 ```
 
-Client and machine come from the collection's manifest; the collection ID starts with them, e.g. `acme_anna_20261118T091500Z`. `PSA_CLIENTS_DIR` moves the `clients` folder elsewhere.
+Client and machine come from the extract's manifest; the extract ID starts with them, e.g. `acme_anna_20261118T091500Z`. `PSA_CLIENTS_DIR` moves the `clients` folder elsewhere.
 
 ## Steps
 
-1. Put the received collection in `~/photo-analysis/clients/<client>/<machine>/collections/` and analyse it:
+1. Put the received extract in `~/photo-analysis/clients/<client>/<machine>/extracts/` and analyse it:
    ```
-   ./psa analyse ~/photo-analysis/clients/<client>/<machine>/collections/<collection ID>
+   ./psa analyse ~/photo-analysis/clients/<client>/<machine>/extracts/<extract ID>
    ```
-   Collections made before client and machine were recorded need them as arguments: `--client <client> --machine <machine>`.
+   An extract made by an older version of the tool is refused; extract again.
 
-   This verifies the collection against its manifest, loads and joins it, writes the reports and prints a summary. It stops before the join if verification fails, for example after an incomplete transfer.
+   This verifies the extract against its manifest, loads and joins it, writes the reports and prints a summary. It stops before the join if verification fails, for example after an incomplete transfer.
 2. Read `join_check.csv` before the reports (see below).
 3. Open the reports in `reports/`.
 
-`./psa` first checks the repository against GitHub and updates it if it is behind. A warning `collection made with commit ..., analysis runs on ...` means the collector and the analysis used different versions.
+`./psa` first checks the repository against GitHub and updates it if it is behind. A warning `extract made with commit ..., analysis runs on ...` means the extract and the analysis used different versions.
 
 ## Options
 
 | Option | Purpose |
 |---|---|
-| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<run_id>`; `latest/` is then left alone |
-| `--client <client> --machine <machine>` | client and machine for a collection made without them; must match the manifest when it has them |
+| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<extract ID>`; `latest/` is then left alone |
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 
-The collection is only read, never changed. The catalog is read from a working copy in a temporary folder (an APFS clone where possible, which takes no extra space on the same disk); it is removed when the analysis ends, also when it is interrupted.
+The extract is only read, never changed. The catalog is read from a working copy in a temporary folder (an APFS clone where possible, which takes no extra space on the same disk); it is removed when the analysis ends, also when it is interrupted.
 
 ## Output
 
@@ -63,18 +62,16 @@ The collection is only read, never changed. The catalog is read from a working c
 | `analysis.duckdb` | DuckDB database with the `photos` table, one row per file on disk or in the catalog |
 | `join_check.csv` | counts to check the join |
 | `photos_pivot.xlsx` | flat file for pivot tables, one row per file; with the default output also copied to the machine's `latest/` |
-| `reports/*.csv` | one CSV per report, each starting with `run_id` and `scan_date` |
+| `reports/*.csv` | one CSV per report, each starting with `extract_id` and `scan_date` |
 
 Times:
-- `scan_date` is the client's local time with its UTC offset, e.g. `2026-11-16 11:22:08+01:00`. Collections made before this was recorded show UTC with `+00:00`.
-- The collection ID is `<client>_<machine>_<UTC timestamp>`; collections made before labels were recorded have `<UTC timestamp>-<host>`.
+- `scan_date` is the client's local time with its UTC offset, e.g. `2026-11-16 11:22:08+01:00`.
+- The extract ID is `<client>_<machine>_<UTC timestamp>`.
 - File dates (`mtime`, `btime`) are UTC; Lightroom capture times are the camera's local time. This only matters for files dated within an hour or two of New Year.
 
 ## Scope
 
 The scan roots are the scope: every row in the `photos` table, the pivot file and the reports is a file under one of the scan roots, and carries that root in `scan_root`. Folder columns are relative to the file's own root. The catalog is used to look up those files (capture date, catalogued or not). Catalog entries outside all scan roots are not analysed; they are counted once, in `join_check.csv` and `reports/reconciliation.csv`.
-
-Collections made before multiple scan roots were supported analyse the same way, with their single root.
 
 ## Join check
 
@@ -90,11 +87,11 @@ Collections made before multiple scan roots were supported analyse the same way,
 | `virtual_copies_excluded` | virtual copies left out; they share the photo's file |
 | `date_source_catalog`, `date_source_mtime` | files dated by catalog capture time, or by file date as fallback |
 
-`matched` = 0 with a large `catalog_outside_scan_root` usually means the catalog stores the photos under another path than the scan root: check the collector log for `does not overlap`, and use `--path-from`/`--path-to`.
+`matched` = 0 with a large `catalog_outside_scan_root` usually means the catalog stores the photos under another path than the scan root: check `extract.log` for `does not overlap`, and use `--path-from`/`--path-to`.
 
 ## Pivot workbook
 
-`photos_pivot.xlsx` has one row per file under the scan root, found in the filesystem, the catalog or both (`source`). Its columns and their meaning are listed in [`analysis/pivot_columns.csv`](../analysis/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
+`photos_pivot.xlsx` has one row per file under the scan root, found in the filesystem, the catalog or both (`source`). Its columns and their meaning are listed in [`analyse/pivot_columns.csv`](../analyse/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
 
 Keep your pivots in a separate workbook per machine, so a new analysis only needs a refresh. Set it up once per machine, in Excel for Microsoft 365 for Mac:
 
@@ -130,7 +127,7 @@ After a change to the tool, check whether the analysis results changed:
 ./psa regress
 ```
 
-It analyses the baseline collection again into a temporary folder and compares the result with the stored baseline analysis: each report, `join_check.csv`, and the contents of `photos_pivot.xlsx` when the baseline has one. Each output is compared as a table. For an output that differs, it shows:
+It analyses the baseline extract again into a temporary folder and compares the result with the stored baseline analysis: each report, `join_check.csv`, and the contents of `photos_pivot.xlsx` when the baseline has one. Each output is compared as a table. For an output that differs, it shows:
 
 - how many rows differ, and per column in how many rows; or, when the row count changed, how many rows are only in the baseline and only in the new analysis
 - up to five example lines, and the file with the full diff
@@ -151,7 +148,7 @@ It analyses the baseline collection again into a temporary folder and compares t
 | `regression: differences in <outputs>` | 1 |
 | `regression: could not run: <reason>` | 2 |
 
-The baseline is `~/photo-analysis/baseline/` with `run/` (a collection, never changed) and `analysis/` (its analysis); `PSA_BASELINE` sets another location.
+The baseline is `~/photo-analysis/baseline/` with `extract/` (an extract, never changed) and `analysis/` (its analysis); `PSA_BASELINE` sets another location.
 
 When a change is meant to alter the results, review the differences, then:
 
@@ -159,7 +156,7 @@ When a change is meant to alter the results, review the differences, then:
 ./psa regress --refresh
 ```
 
-It asks for confirmation, keeps the previous analysis as `analysis.<timestamp>`, and replaces `baseline/analysis` with the new output. `baseline/run` is never touched.
+It asks for confirmation, keeps the previous analysis as `analysis.<timestamp>`, and replaces `baseline/analysis` with the new output. `baseline/extract` is never touched.
 
 ## Reports
 

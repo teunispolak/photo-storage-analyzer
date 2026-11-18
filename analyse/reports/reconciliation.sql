@@ -43,8 +43,8 @@ COPY (
         SELECT 99, NULL, 'virtual copies (not files)',
                (SELECT count(*) FROM lr_image WHERE master_id IS NOT NULL), NULL
     )
-    SELECT r.run_id, r.scan_date, b.level, b.category, b.files, b.bytes,
+    SELECT r.extract_id, r.scan_date, b.level, b.category, b.files, b.bytes,
            round(b.bytes / 1e9, 2) AS gb
-    FROM body b, run_info r
+    FROM body b, extract_info r
     ORDER BY b.sort
 ) TO 'reports/reconciliation.csv' (HEADER);

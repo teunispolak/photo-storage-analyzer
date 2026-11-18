@@ -1,12 +1,12 @@
 # Customer data: never commit
-out/
-runs/
+extracts/
+clients/
 *.lrcat
 *.lrcat-*
 *.lrdata/
 *.csv
-!analysis/types.csv
-!analysis/pivot_columns.csv
+!analyse/types.csv
+!analyse/pivot_columns.csv
 *.duckdb
 *.duckdb.wal
 *.part

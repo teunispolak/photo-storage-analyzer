@@ -1,45 +1,39 @@
--- Load a collector run into DuckDB.
+-- Load an extract into DuckDB.
 --
 -- Variables, set before .read:
---   run_dir     received run folder with files.csv, catalog.lrcat, manifest.json (required)
---   catalog     catalog file to read (optional; default run_dir/catalog.lrcat). run.sh
+--   extract_dir received extract folder with files.csv, catalog.lrcat, manifest.json (required)
+--   catalog     catalog file to read (optional; default extract_dir/catalog.lrcat). analyse.sh
 --               passes a working copy: Lightroom catalogs use WAL mode, and opening one
 --               makes SQLite create -shm and -wal files next to it
---   types_csv   path to analysis/types.csv (required)
--- Requires a run with a catalog copy (not --skip-catalog).
+--   types_csv   path to analyse/types.csv (required)
+-- Requires an extract with a catalog copy (not --skip-catalog), of the manifest
+-- schema verify.py checks.
 --
--- Creates: run_info, scan_roots, scan, types, lr_root, lr_folder, lr_file, lr_image
--- Runs collected before multiple scan roots (manifest scan_root, files.csv
--- without a scan_root column) load the same way, with their single root.
+-- Creates: extract_info, scan_roots, scan, types, lr_root, lr_folder, lr_file, lr_image
 -- The catalog is copied into local tables and detached, so later queries do
 -- not need the catalog file.
 
 -- scan_date: the client's local time with UTC offset, as text, so it reads the
--- same on any analysis machine. Older manifests have only the UTC time.
+-- same on any analysis machine.
 CREATE OR REPLACE TEMP TABLE manifest AS
 SELECT *
-FROM read_json(getvariable('run_dir') || '/manifest.json',
-               columns = {'run_id': 'VARCHAR', 'finished': 'VARCHAR', 'finished_local': 'VARCHAR',
-                          'scan_root': 'VARCHAR', 'scan_roots': 'VARCHAR[]'});
+FROM read_json(getvariable('extract_dir') || '/manifest.json',
+               columns = {'extract_id': 'VARCHAR', 'finished_local': 'VARCHAR',
+                          'scan_roots': 'VARCHAR[]'});
 
-CREATE OR REPLACE TABLE run_info AS
-SELECT run_id,
-       coalesce(replace(finished_local, 'T', ' '),
-                replace(replace(finished, 'T', ' '), 'Z', '+00:00')) AS scan_date
+CREATE OR REPLACE TABLE extract_info AS
+SELECT extract_id, replace(finished_local, 'T', ' ') AS scan_date
 FROM manifest;
 
 -- One row per scan root; root_lc is the lower-case prefix used for matching
 CREATE OR REPLACE TABLE scan_roots AS
 SELECT nfc_normalize(rtrim(r, '/')) AS scan_root,
        lower(nfc_normalize(rtrim(r, '/'))) || '/' AS root_lc
-FROM manifest, unnest(coalesce(scan_roots, [scan_root])) AS t(r);
+FROM manifest, unnest(scan_roots) AS t(r);
 
--- All columns as text; an older files.csv has no scan_root column, which
--- UNION ALL BY NAME adds as NULL
+-- All columns as text, cast below
 CREATE OR REPLACE TEMP TABLE files_raw AS
-SELECT * FROM read_csv(getvariable('run_dir') || '/files.csv', header = true, all_varchar = true)
-UNION ALL BY NAME
-SELECT NULL::VARCHAR AS scan_root WHERE false;
+SELECT * FROM read_csv(getvariable('extract_dir') || '/files.csv', header = true, all_varchar = true);
 
 CREATE OR REPLACE TABLE scan AS
 SELECT
@@ -57,7 +51,7 @@ SELECT
     hidden   = '1' AS hidden,
     dataless = '1' AS dataless,
     symlink  = '1' AS symlink,
-    nfc_normalize(rtrim(coalesce(scan_root, (SELECT min(scan_root) FROM scan_roots)), '/')) AS scan_root
+    nfc_normalize(rtrim(scan_root, '/'))  AS scan_root
 FROM files_raw;
 
 CREATE OR REPLACE TABLE types AS
@@ -68,7 +62,7 @@ FROM read_csv(getvariable('types_csv'), header = true,
 -- Lightroom declares many columns without a type; read everything as text
 -- and cast explicitly.
 SET sqlite_all_varchar = true;
-ATTACH coalesce(getvariable('catalog'), getvariable('run_dir') || '/catalog.lrcat') AS lr (TYPE sqlite, READ_ONLY);
+ATTACH coalesce(getvariable('catalog'), getvariable('extract_dir') || '/catalog.lrcat') AS lr (TYPE sqlite, READ_ONLY);
 
 CREATE OR REPLACE TABLE lr_root AS
 SELECT cast(id_local AS BIGINT) AS id, absolutePath AS absolute_path

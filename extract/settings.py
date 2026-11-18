@@ -1,5 +1,5 @@
 """
-Settings file for the collector and the catalog check.
+Settings file for the extract and the catalog check.
 
 Format: one KEY="value" per line; blank lines and lines starting with #
 are ignored. The file is read, not executed: $HOME, ${HOME} and a leading ~

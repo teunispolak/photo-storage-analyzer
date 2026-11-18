@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Verify a received collection against its manifest.
+Verify a received extract against its manifest.
 
-Usage: python3 verify.py <run_dir>
-Exit 0 if complete and checksums match, 1 otherwise.
+Usage: python3 verify.py <extract_dir>
+Exit 0 if complete, of the current schema, and checksums match; 1 otherwise.
 """
 
 import hashlib
@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 
 CHUNK = 8 * 1024 * 1024
+# Manifest schema the analysis reads; extract/extract.py writes the same number
+SCHEMA = 2
 
 
 def sha256_file(path: Path) -> str:
@@ -24,16 +26,20 @@ def sha256_file(path: Path) -> str:
 
 def main() -> int:
     if len(sys.argv) != 2:
-        print("usage: verify.py <run_dir>", file=sys.stderr)
+        print("usage: verify.py <extract_dir>", file=sys.stderr)
         return 1
-    run_dir = Path(sys.argv[1])
-    mpath = run_dir / "manifest.json"
+    extract_dir = Path(sys.argv[1])
+    mpath = extract_dir / "manifest.json"
     if not mpath.is_file():
-        print(f"FAIL no manifest.json in {run_dir}")
+        print(f"FAIL no manifest.json in {extract_dir}")
         return 1
     m = json.loads(mpath.read_text(encoding="utf-8"))
     if m.get("status") != "complete":
         print(f"FAIL manifest status is {m.get('status')!r}")
+        return 1
+    if m.get("schema") != SCHEMA:
+        print(f"FAIL extract has manifest schema {m.get('schema')!r}, the analysis reads {SCHEMA}: "
+              "made by another version; extract again with the current version")
         return 1
 
     checks = [("files", m["files"])]
@@ -42,7 +48,7 @@ def main() -> int:
 
     ok = True
     for label, entry in checks:
-        p = run_dir / entry["file"]
+        p = extract_dir / entry["file"]
         if not p.is_file():
             print(f"FAIL {label}: {p.name} missing")
             ok = False
@@ -56,7 +62,7 @@ def main() -> int:
 
     if ok:
         f = m["files"]
-        print(f"ok   collection {m['run_id']}: {f['rows']} files, "
+        print(f"ok   extract {m['extract_id']}: {f['rows']} files, "
               f"{f['size_bytes'] / 1e12:.2f} TB, {f['errors']} scan errors")
     return 0 if ok else 1
 

@@ -8,7 +8,7 @@
 -- Creates: catalog_entries (all catalog files, with in_scope and scan_root),
 --          photos (files under the scan roots only, with scan_root), join_check
 -- Scope: the scan roots. Catalog entries outside all of them are counted in
--- join_check (catalog_outside_scan_root) and left out of photos. The collector
+-- join_check (catalog_outside_scan_root) and left out of photos. The extract
 -- refuses nested roots, so a path is under one root at most.
 -- Writes:  join_check.csv in the current folder
 

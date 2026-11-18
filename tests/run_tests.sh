@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Run collector, verify and analysis against generated sample data.
+# Run extract, verify and analyse against generated sample data.
 # Usage: tests/run_tests.sh      (from the repository root)
 #   PYTHON=/usr/bin/python3 tests/run_tests.sh   to test a specific interpreter
 # Exit 0 if all checks pass.
@@ -10,8 +10,8 @@ repo="${0:A:h:h}"
 work="${TEST_WORK:-${TMPDIR:-/tmp}/photo-storage-analyzer-tests}"  # outside the repository
 work="${work:a}"  # absolute, no // (macOS TMPDIR ends in /); symlinks kept
 py="${PYTHON:-python3}"
-collect_raw=($py -I "$repo/collector/collect.py")
-collect=($collect_raw --client test --machine m1)  # labels are required; tests of labels use collect_raw
+extract_raw=($py -I "$repo/extract/extract.py")
+extract=($extract_raw --client test --machine m1)  # labels are required; tests of labels use extract_raw
 # psa reads ~/photo-analysis/settings.env; tests use no settings file unless they set one
 export PSA_SETTINGS=""
 fails=0
@@ -56,39 +56,39 @@ import sys; h = open(sys.argv[1], 'rb').read(20); sys.exit(0 if h[18] == 2 and h
 check "fixture: no SQLite side files next to the test catalogs" 0 test -z "$(ls "$d/lr" | grep -E 'lrcat-(wal|shm)')"
 
 # Catalog structure check
-chk=($py -I "$repo/collector/check_catalog.py")
+chk=($py -I "$repo/extract/check_catalog.py")
 check "check_catalog: test catalog has the required structure" 0 $chk "$d/lr/Test.lrcat"
-check "check_catalog: counts the virtual copy" 0 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' | grep -q 'virtual copies: 1'"
-check "check_catalog: --show-roots prints the root folder" 0 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' --show-roots | grep -qF '$d/vol/Photos/'"
-check "check_catalog: no root paths without --show-roots" 1 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' | grep -qF '$d/vol/Photos/'"
+check "check_catalog: counts the virtual copy" 0 sh -c "$py -I '$repo/extract/check_catalog.py' '$d/lr/Test.lrcat' | grep -q 'virtual copies: 1'"
+check "check_catalog: --show-roots prints the root folder" 0 sh -c "$py -I '$repo/extract/check_catalog.py' '$d/lr/Test.lrcat' --show-roots | grep -qF '$d/vol/Photos/'"
+check "check_catalog: no root paths without --show-roots" 1 sh -c "$py -I '$repo/extract/check_catalog.py' '$d/lr/Test.lrcat' | grep -qF '$d/vol/Photos/'"
 $py -I -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('CREATE TABLE AgLibraryRootFolder (id_local, absolutePath)'); c.commit()" "$work/broken.lrcat"
 check "check_catalog: fails on a catalog missing tables" 1 $chk "$work/broken.lrcat"
 
-# Settings file (collector/settings.py), passed with --settings
+# Settings file (extract/settings.py), passed with --settings
 sd="$work/settings"; mkdir -p "$sd"
-# value of a manifest field, as JSON: mq <run folder> <python expression on m>
+# value of a manifest field, as JSON: mq <extract> <python expression on m>
 mq() { $py -I -c "import json,sys; m=json.load(open(sys.argv[1]+'/manifest.json')); print(json.dumps(eval(sys.argv[2])))" "$1" "$2"; }
-onerun() { local r=("$1"/*(/N)); print -- "${r[1]:-$1/none}"; }
+oneext() { local r=("$1"/*(/N)); print -- "${r[1]:-$1/none}"; }
 printf '# client settings\n\nCLIENT="acme"\nMACHINE="anna"\nCATALOG="%s"\nSCAN_ROOT="%s"\n  SCAN_ROOT="%s"  \n' "$d/lr/Multi.lrcat" "$d/vol/Photos" "$d/vol/Extra" > "$sd/two.env"
-check "settings: run with labels, catalog and two roots from the file" 0 $collect_raw --settings "$sd/two.env" --out "$work/out_set"
-srun=$(onerun "$work/out_set")
-check "settings: scan roots taken from the file" 0 test "$(mq "$srun" "m['scan_roots']")" = "[\"$d/vol/Photos\", \"$d/vol/Extra\"]"
-check "settings: manifest records file, values and checksum" 0 test "$(mq "$srun" "[m['settings']['file'], m['settings']['used'], m['settings']['replaced_by_command_line'], len(m['settings']['sha256']), len(m['collector']['settings_module_sha256'])]")" = "[\"$sd/two.env\", {\"SCAN_ROOT\": [\"$d/vol/Photos\", \"$d/vol/Extra\"], \"CLIENT\": \"acme\", \"MACHINE\": \"anna\", \"CATALOG\": \"$d/lr/Multi.lrcat\"}, [], 64, 64]"
-check "labels: from the settings file into manifest and run folder name" 0 test "$(mq "$srun" "[m['client'], m['machine'], m['run_id'].rsplit('_', 1)[0]]")/${srun:t}" = "[\"acme\", \"anna\", \"acme_anna\"]/$(mq "$srun" "m['run_id']" | tr -d '\"')"
-check "settings: collector.log names the file and values" 0 grep -q "SCAN_ROOT from settings file: $d/vol/Extra" "$srun/collector.log"
-check "settings: --scan-root replaces all SCAN_ROOT lines" 0 $collect_raw --settings "$sd/two.env" --scan-root "$d/vol/Photos" --machine bob --out "$work/out_set_arg"
-srun=$(onerun "$work/out_set_arg")
-check "settings: only the command-line root is scanned" 0 test "$(mq "$srun" "[m['scan_roots'], list(m['settings']['used']), m['settings']['replaced_by_command_line']]")" = "[[\"$d/vol/Photos\"], [\"CLIENT\", \"CATALOG\"], [\"SCAN_ROOT\", \"MACHINE\"]]"
-check "labels: --machine replaces MACHINE" 0 test "$(mq "$srun" "[m['client'], m['machine']]")" = "[\"acme\", \"bob\"]"
+check "settings: run with labels, catalog and two roots from the file" 0 $extract_raw --settings "$sd/two.env" --out "$work/out_set"
+sext=$(oneext "$work/out_set")
+check "settings: scan roots taken from the file" 0 test "$(mq "$sext" "m['scan_roots']")" = "[\"$d/vol/Photos\", \"$d/vol/Extra\"]"
+check "settings: manifest records file, values and checksum" 0 test "$(mq "$sext" "[m['settings']['file'], m['settings']['used'], m['settings']['replaced_by_command_line'], len(m['settings']['sha256']), len(m['tool']['settings_module_sha256'])]")" = "[\"$sd/two.env\", {\"SCAN_ROOT\": [\"$d/vol/Photos\", \"$d/vol/Extra\"], \"CLIENT\": \"acme\", \"MACHINE\": \"anna\", \"CATALOG\": \"$d/lr/Multi.lrcat\"}, [], 64, 64]"
+check "labels: from the settings file into manifest and extract folder name" 0 test "$(mq "$sext" "[m['client'], m['machine'], m['extract_id'].rsplit('_', 1)[0]]")/${sext:t}" = "[\"acme\", \"anna\", \"acme_anna\"]/$(mq "$sext" "m['extract_id']" | tr -d '\"')"
+check "settings: extract.log names the file and values" 0 grep -q "SCAN_ROOT from settings file: $d/vol/Extra" "$sext/extract.log"
+check "settings: --scan-root replaces all SCAN_ROOT lines" 0 $extract_raw --settings "$sd/two.env" --scan-root "$d/vol/Photos" --machine bob --out "$work/out_set_arg"
+sext=$(oneext "$work/out_set_arg")
+check "settings: only the command-line root is scanned" 0 test "$(mq "$sext" "[m['scan_roots'], list(m['settings']['used']), m['settings']['replaced_by_command_line']]")" = "[[\"$d/vol/Photos\"], [\"CLIENT\", \"CATALOG\"], [\"SCAN_ROOT\", \"MACHINE\"]]"
+check "labels: --machine replaces MACHINE" 0 test "$(mq "$sext" "[m['client'], m['machine']]")" = "[\"acme\", \"bob\"]"
 print -r -- 'CATALOG="$HOME/lr/Test.lrcat"' > "$sd/home.env"; print -r -- 'SCAN_ROOT="~/vol/Photos"' >> "$sd/home.env"
-check "settings: \$HOME and ~ expanded" 0 env HOME="$d" $collect --settings "$sd/home.env" --out "$work/out_set_home"
-check "settings: expanded values in the manifest" 0 test "$(mq "$(onerun "$work/out_set_home")" "m['settings']['used']")" = "{\"SCAN_ROOT\": [\"$d/vol/Photos\"], \"CATALOG\": \"$d/lr/Test.lrcat\"}"
+check "settings: \$HOME and ~ expanded" 0 env HOME="$d" $extract --settings "$sd/home.env" --out "$work/out_set_home"
+check "settings: expanded values in the manifest" 0 test "$(mq "$(oneext "$work/out_set_home")" "m['settings']['used']")" = "{\"SCAN_ROOT\": [\"$d/vol/Photos\"], \"CATALOG\": \"$d/lr/Test.lrcat\"}"
 print -r -- "SCAN_ROOT=\"$d/\$USER/Photos\"" > "$sd/var.env"
-check "settings: other variables are not expanded" 1 $collect --settings "$sd/var.env" --skip-catalog --out "$work/out_set_var"
+check "settings: other variables are not expanded" 1 $extract --settings "$sd/var.env" --skip-catalog --out "$work/out_set_var"
 cp "$work/last.out" "$sd/var.out"
 check "settings: path kept as written" 0 grep -qF "$d/\$USER/Photos" "$sd/var.out"
 print -r -- "CATALOG=\"$d/lr/Test.lrcat\"" > "$sd/noroot.env"
-check "settings: no scan root anywhere stops the run" 1 $collect --settings "$sd/noroot.env" --out "$work/out_set_bad"
+check "settings: no scan root anywhere stops the run" 1 $extract --settings "$sd/noroot.env" --out "$work/out_set_bad"
 for name content in \
     unquoted "SCAN_ROOT=$d/vol/Photos" \
     unknown_key "SCANROOT=\"$d/vol/Photos\"" \
@@ -96,97 +96,100 @@ for name content in \
     empty_value "SCAN_ROOT=\"\"" \
     shell_line "export SCAN_ROOT=\"$d/vol/Photos\""; do
   printf "SCAN_ROOT=\"$d/vol/Photos\"\n$content\n" > "$sd/$name.env"
-  check "settings: $name stops the run" 1 $collect --settings "$sd/$name.env" --out "$work/out_set_bad"
+  check "settings: $name stops the run" 1 $extract --settings "$sd/$name.env" --out "$work/out_set_bad"
   cp "$work/last.out" "$sd/$name.out"
   check "settings: $name is reported with its line number" 0 grep -q 'line [0-9]' "$sd/$name.out"
 done
 # Labels: required, valid
-check "labels: no client stops the run" 1 $collect_raw $args --machine m1 --out "$work/out_set_bad"
+check "labels: no client stops the run" 1 $extract_raw $args --machine m1 --out "$work/out_set_bad"
 cp "$work/last.out" "$sd/noclient.out"
 check "labels: says the client is missing" 0 grep -q 'No client' "$sd/noclient.out"
-check "labels: no machine stops the run" 1 $collect_raw $args --client test --out "$work/out_set_bad"
+check "labels: no machine stops the run" 1 $extract_raw $args --client test --out "$work/out_set_bad"
 for bad in Acme 'a b' -acme 'acme/x' "$(printf 'a%.0s' {1..41})"; do
-  check "labels: invalid client '$bad' stops the run" 1 $collect_raw $args --client="$bad" --machine m1 --out "$work/out_set_bad"
+  check "labels: invalid client '$bad' stops the run" 1 $extract_raw $args --client="$bad" --machine m1 --out "$work/out_set_bad"
 done
 printf 'CLIENT="Acme Photo"\n' > "$sd/badlabel.env"
-check "labels: invalid CLIENT in the settings file stops the run" 1 $collect $args --settings "$sd/badlabel.env" --out "$work/out_set_bad"
+check "labels: invalid CLIENT in the settings file stops the run" 1 $extract $args --settings "$sd/badlabel.env" --out "$work/out_set_bad"
 cp "$work/last.out" "$sd/badlabel.out"
 check "labels: settings file label error gives the line" 0 grep -q 'line 1: CLIENT' "$sd/badlabel.out"
-check "settings: missing file stops the run" 1 $collect --settings "$sd/none.env" --out "$work/out_set_bad"
+check "settings: missing file stops the run" 1 $extract --settings "$sd/none.env" --out "$work/out_set_bad"
 check "settings: stopped runs wrote nothing" 0 test ! -e "$work/out_set_bad"
-check "check_catalog: CATALOG from the settings file" 0 sh -c "$py -I '$repo/collector/check_catalog.py' --settings '$sd/two.env' | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
-check "check_catalog: argument replaces CATALOG" 0 sh -c "$py -I '$repo/collector/check_catalog.py' '$d/lr/Test.lrcat' --settings '$sd/two.env' | grep -q 'CATALOG from the command line'"
+check "check_catalog: CATALOG from the settings file" 0 sh -c "$py -I '$repo/extract/check_catalog.py' --settings '$sd/two.env' | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
+check "check_catalog: argument replaces CATALOG" 0 sh -c "$py -I '$repo/extract/check_catalog.py' '$d/lr/Test.lrcat' --settings '$sd/two.env' | grep -q 'CATALOG from the command line'"
 check "check_catalog: bad settings file fails" 1 $chk --settings "$sd/unknown_key.env"
 
 # Preflight failures
-check "preflight: output inside scan root" 1 $collect $args --out "$d/vol/Photos/out"
-check "preflight: output inside Dropbox folder" 1 $collect $args --out "$d/vol/x" --dropbox-root "$d/vol"
+check "preflight: output inside scan root" 1 $extract $args --out "$d/vol/Photos/out"
+check "preflight: output inside Dropbox folder" 1 $extract $args --out "$d/vol/x" --dropbox-root "$d/vol"
 touch "$d/lr/Test.lrcat.lock"
-check "preflight: lock file present" 1 $collect $args --out "$d/out"
+check "preflight: lock file present" 1 $extract $args --out "$d/out"
 mv "$d/lr/Test.lrcat.lock" "$d/lr/Test.lrcat-wal"
-check "preflight: -wal file present" 1 $collect $args --out "$d/out"
+check "preflight: -wal file present" 1 $extract $args --out "$d/out"
 mv "$d/lr/Test.lrcat-wal" "$work/removed-wal"
-check "preflight: missing catalog" 1 $collect --scan-root "$d/vol/Photos" --catalog "$d/lr/None.lrcat" --out "$d/out"
+check "preflight: missing catalog" 1 $extract --scan-root "$d/vol/Photos" --catalog "$d/lr/None.lrcat" --out "$d/out"
 
-# Complete run
-check "collector: complete run" 0 $collect $args --out "$d/out"
-run=("$d"/out/*(/N))
-if (( ${#run} != 1 )); then
-  print "FAIL expected one run folder, found ${#run}"; exit 1
+# Complete extract
+check "extract: complete extract" 0 $extract $args --out "$d/out"
+ext=("$d"/out/*(/N))
+if (( ${#ext} != 1 )); then
+  print "FAIL expected one extract, found ${#ext}"; exit 1
 fi
-run="${run[1]}"
-check "settings: run without a file says so" 0 grep -q 'Settings file: none' "$run/collector.log"
-check "manifest: settings null without a file" 0 test "$(mq "$run" "m['settings']")" = null
-for f in catalog.lrcat files.csv manifest.json collector.log; do
-  check "run folder has $f" 0 test -f "$run/$f"
+ext="${ext[1]}"
+check "settings: extract without a file says so" 0 grep -q 'Settings file: none' "$ext/extract.log"
+check "manifest: schema 2, extract_id is the folder name, tool block" 0 test "$(mq "$ext" "[m['schema'], m['extract_id'] == '${ext:t}', sorted(m['tool'])[:3], 'run_id' in m, 'collector' in m]")" = '[2, true, ["git_commit", "script_sha256", "settings_module_sha256"], false, false]'
+check "extract: default output in ~/photo-analysis/extracts" 0 env HOME="$work/home_ext" $extract $args
+check "extract: one extract there" 0 test "$(ls "$work/home_ext/photo-analysis/extracts" | grep -c '^test_m1_')" = 1
+check "manifest: settings null without a file" 0 test "$(mq "$ext" "m['settings']")" = null
+for f in catalog.lrcat files.csv manifest.json extract.log; do
+  check "extract has $f" 0 test -f "$ext/$f"
 done
-check "files.csv has 9 rows" 0 test "$(( $(wc -l < "$run/files.csv") - 1 ))" -eq 9
+check "files.csv has 9 rows" 0 test "$(( $(wc -l < "$ext/files.csv") - 1 ))" -eq 9
 check "failed preflight wrote nothing" 0 test ! -e "$d/vol/Photos/out" -a ! -e "$d/vol/x"
 check "file names are NFC" 0 $py -I -c "
 import sys, unicodedata
 t = open(sys.argv[1], encoding='utf-8').read()
-sys.exit(0 if t == unicodedata.normalize('NFC', t) and 'Café.JPG' in t else 1)" "$run/files.csv"
+sys.exit(0 if t == unicodedata.normalize('NFC', t) and 'Café.JPG' in t else 1)" "$ext/files.csv"
 
-# Scan root through a symlink: paths differ from the catalog's, collector must warn
+# Scan root through a symlink: paths differ from the catalog's, the extract must warn
 ln -s "$d/vol" "$work/vol_link"
-check "collector: warns when scan root does not match catalog root" 0 sh -c \
-  "$py -I '$repo/collector/collect.py' --client test --machine m1 --scan-root '$work/vol_link/Photos' --catalog '$d/lr/Test.lrcat' --out '$work/out_link' 2>&1 | grep -q 'does not overlap'"
-check "collector: no warning when scan root matches" 1 grep -q 'does not overlap' "$run/collector.log"
+check "extract: warns when scan root does not match catalog root" 0 sh -c \
+  "$py -I '$repo/extract/extract.py' --client test --machine m1 --scan-root '$work/vol_link/Photos' --catalog '$d/lr/Test.lrcat' --out '$work/out_link' 2>&1 | grep -q 'does not overlap'"
+check "extract: no warning when scan root matches" 1 grep -q 'does not overlap' "$ext/extract.log"
 
 # macOS only: creation date and hidden flag
 if [[ "$(uname)" == Darwin ]]; then
   check "macOS: btime filled for every row" 0 $py -I -c "
 import csv, sys
 rows = list(csv.DictReader(open(sys.argv[1], encoding='utf-8')))
-sys.exit(0 if rows and all(r['btime'] for r in rows) else 1)" "$run/files.csv"
+sys.exit(0 if rows and all(r['btime'] for r in rows) else 1)" "$ext/files.csv"
   check "macOS: hidden flag detected" 0 $py -I -c "
 import csv, sys
 rows = {r['name']: r for r in csv.DictReader(open(sys.argv[1], encoding='utf-8'))}
-sys.exit(0 if rows['flagged.jpg']['hidden'] == '1' and rows['root.txt']['hidden'] == '0' else 1)" "$run/files.csv"
+sys.exit(0 if rows['flagged.jpg']['hidden'] == '1' and rows['root.txt']['hidden'] == '0' else 1)" "$ext/files.csv"
 fi
 
-# Analysis (run.sh: verify, load, join, reports), output outside the run folder
+# Analysis (analyse.sh: verify, load, join, reports), output outside the extract
 if ! command -v duckdb > /dev/null; then
   print "FAIL duckdb not found"; (( fails++ ))
 else
-  runsh=(zsh "$repo/analysis/run.sh")
+  anash=(zsh "$repo/analyse/analyse.sh")
   ana="$work/ana"
-  before=$(cd "$run" && ls -lR)
-  check "run.sh: complete run" 0 $runsh "$run" --out "$ana"
-  check "run.sh: run folder left unchanged" 0 test "$(cd "$run" && ls -lR)" = "$before"
-  check "run.sh: no SQLite side files in the run folder" 0 test -z "$(ls "$run" | grep -E 'lrcat-(wal|shm)')"
+  before=$(cd "$ext" && ls -lR)
+  check "analyse: complete extract" 0 $anash "$ext" --out "$ana"
+  check "analyse: extract left unchanged" 0 test "$(cd "$ext" && ls -lR)" = "$before"
+  check "analyse: no SQLite side files in the extract" 0 test -z "$(ls "$ext" | grep -E 'lrcat-(wal|shm)')"
   mkdir -p "$work/tmp_normal" "$work/tmp_pipe"
-  check "run.sh: working copy removed after a normal run" 0 sh -c "TMPDIR='$work/tmp_normal' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_tmpcheck' > /dev/null 2>&1 && test -z \"\$(ls '$work/tmp_normal')\""
-  TMPDIR="$work/tmp_pipe" zsh "$repo/analysis/run.sh" "$run" --out "$work/ana_pipe" 2>&1 | grep -q 'loading and joining'
+  check "analyse: working copy removed after a normal analysis" 0 sh -c "TMPDIR='$work/tmp_normal' zsh '$repo/analyse/analyse.sh' '$ext' --out '$work/ana_tmpcheck' > /dev/null 2>&1 && test -z \"\$(ls '$work/tmp_normal')\""
+  TMPDIR="$work/tmp_pipe" zsh "$repo/analyse/analyse.sh" "$ext" --out "$work/ana_pipe" 2>&1 | grep -q 'loading and joining'
   sleep 1
-  check "run.sh: working copy removed when output is cut off (broken pipe)" 0 test -z "$(ls "$work/tmp_pipe")"
-  check "run.sh: refuses existing output without --replace" 1 $runsh "$run" --out "$ana"
-  check "run.sh: --replace overwrites" 0 $runsh "$run" --out "$ana" --replace
-  check "run.sh: refuses output inside the run folder" 1 $runsh "$run" --out "$run/x"
-  check "run.sh: refuses output inside the repository" 1 $runsh "$run" --out "$repo/x"
-  check "run.sh: --path-from needs --path-to" 1 $runsh "$run" --out "$work/ana_x" --path-from /a
-  check "run.sh: join_check.csv written" 0 test -f "$ana/join_check.csv"
-  check "run.sh: second run gives identical reports" 0 sh -c "zsh '$repo/analysis/run.sh' '$run' --out '$work/ana2' > /dev/null 2>&1 && diff -r '$ana/reports' '$work/ana2/reports' && diff '$ana/join_check.csv' '$work/ana2/join_check.csv'"
+  check "analyse: working copy removed when output is cut off (broken pipe)" 0 test -z "$(ls "$work/tmp_pipe")"
+  check "analyse: refuses existing output without --replace" 1 $anash "$ext" --out "$ana"
+  check "analyse: --replace overwrites" 0 $anash "$ext" --out "$ana" --replace
+  check "analyse: refuses output inside the extract" 1 $anash "$ext" --out "$ext/x"
+  check "analyse: refuses output inside the repository" 1 $anash "$ext" --out "$repo/x"
+  check "analyse: --path-from needs --path-to" 1 $anash "$ext" --out "$work/ana_x" --path-from /a
+  check "analyse: join_check.csv written" 0 test -f "$ana/join_check.csv"
+  check "analyse: second analysis gives identical reports" 0 sh -c "zsh '$repo/analyse/analyse.sh' '$ext' --out '$work/ana2' > /dev/null 2>&1 && diff -r '$ana/reports' '$work/ana2/reports' && diff '$ana/join_check.csv' '$work/ana2/join_check.csv'"
 
   expected=(
     disk_files 9  catalog_photos 4  catalog_attached 2  catalog_duplicate_keys 0
@@ -209,21 +212,21 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "join: raw capture year from catalog" 0 test "$(q "SELECT capture_year || '/' || date_source FROM photos WHERE name = 'IMG_0001.CR2'")" = "2014/catalog"
   check "join: type groups" 0 test "$(q "SELECT string_agg(name || ':' || type_group, ' ' ORDER BY name) FROM photos WHERE name IN ('.DS_Store','IMG_0001.xmp','IMG_0100.NEF','root.txt')")" = ".DS_Store:system IMG_0001.xmp:metadata IMG_0100.NEF:raw root.txt:other"
 
-  check "join: prefix mapping run" 0 $runsh "$run" --out "$work/ana_mapped" --path-from "$d/vol/Photos/" --path-to /elsewhere/
+  check "join: prefix mapping analysis" 0 $anash "$ext" --out "$work/ana_mapped" --path-from "$d/vol/Photos/" --path-to /elsewhere/
   check "join: prefix mapping applied to all catalog paths" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_paths_prefix_mapped 6
   check "join: prefix mapping leaves nothing matched" 0 metric_is "$work/ana_mapped/join_check.csv" matched 0
-  check "join: double slash in --path-from is collapsed" 0 $runsh "$run" --out "$work/ana_slash" --path-from "${d%/*}//${d:t}/vol//Photos/" --path-to /elsewhere/
+  check "join: double slash in --path-from is collapsed" 0 $anash "$ext" --out "$work/ana_slash" --path-from "${d%/*}//${d:t}/vol//Photos/" --path-to /elsewhere/
   check "join: double slash mapping applied to all catalog paths" 0 metric_is "$work/ana_slash/join_check.csv" catalog_paths_prefix_mapped 6
 
   # Required catalog columns (check_catalog.py) are exactly what the load needs
   variants="$work/variants"
-  cols=("${(@f)$($py -I "$repo/tests/catalog_variants.py" "$d/lr/Test.lrcat" "$repo/collector/check_catalog.py" "$variants")}")
-  load_with() {  # load_with <catalog> <out_dir>: load and join a run copy that uses <catalog>
-    local rc="$2/run"; mkdir -p "$rc"
-    cp "$run/files.csv" "$run/manifest.json" "$rc/"; cp "$1" "$rc/catalog.lrcat"
+  cols=("${(@f)$($py -I "$repo/tests/catalog_variants.py" "$d/lr/Test.lrcat" "$repo/extract/check_catalog.py" "$variants")}")
+  load_with() {  # load_with <catalog> <out_dir>: load and join an extract copy that uses <catalog>
+    local rc="$2/extract"; mkdir -p "$rc"
+    cp "$ext/files.csv" "$ext/manifest.json" "$rc/"; cp "$1" "$rc/catalog.lrcat"
     (cd "$2" && env -u AI_AGENT -u CLAUDECODE duckdb -bail analysis.duckdb \
-      -c "SET VARIABLE run_dir = '$rc'" -c "SET VARIABLE types_csv = '$repo/analysis/types.csv'" \
-      -c ".read $repo/analysis/10_load.sql" -c ".read $repo/analysis/20_join.sql") > /dev/null 2>&1
+      -c "SET VARIABLE extract_dir = '$rc'" -c "SET VARIABLE types_csv = '$repo/analyse/types.csv'" \
+      -c ".read $repo/analyse/10_load.sql" -c ".read $repo/analyse/20_join.sql") > /dev/null 2>&1
   }
   check "catalog columns: sample catalog still has no SQLite side files" 0 test -z "$(ls "$d/lr" | grep -E 'lrcat-(wal|shm)')"
   check "catalog columns: minimal catalog loads" 0 load_with "$variants/minimal.lrcat" "$variants/minimal"
@@ -233,56 +236,56 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
     check "catalog columns: load fails ${c%.lrcat}" 1 load_with "$variants/$c" "$variants/${c%.lrcat}"
   done
 
-  for r in "$repo"/analysis/reports/*.sql; do
+  for r in "$repo"/analyse/reports/*.sql; do
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
   done
   # Reconciliation report
   check "reconciliation: levels add up and match join_check" 0 $py -I "$repo/tests/check_reconciliation.py" "$ana"
   check "reconciliation: all catalog files outside the scan root (prefix mapping)" 0 $py -I "$repo/tests/check_reconciliation.py" "$work/ana_mapped"
-  check "reconciliation: mapped run counts 6 catalog entries outside the scan root" 0 test "$(grep ',catalog entries outside the scan root (not analysed),' "$work/ana_mapped/reports/reconciliation.csv" | cut -d, -f5)" = 6
-  check "scope: mapped run has no catalog files in scope" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_only 0
-  check "scope: mapped run counts them outside the scan root" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_outside_scan_root 6
+  check "reconciliation: mapped analysis counts 6 catalog entries outside the scan root" 0 test "$(grep ',catalog entries outside the scan root (not analysed),' "$work/ana_mapped/reports/reconciliation.csv" | cut -d, -f5)" = 6
+  check "scope: mapped analysis has no catalog files in scope" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_only 0
+  check "scope: mapped analysis counts them outside the scan root" 0 metric_is "$work/ana_mapped/join_check.csv" catalog_outside_scan_root 6
 
   # Pivot file (photos_pivot.xlsx)
   dq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$@"; }
   check "pivot: photos_pivot.xlsx written" 0 test -f "$ana/photos_pivot.xlsx"
-  contract_cols=$($py -I -c "import csv,sys; print(','.join(r['column'] for r in csv.DictReader(open(sys.argv[1]))))" "$repo/analysis/pivot_columns.csv")
-  contract_types=$($py -I -c "import csv,sys; print(','.join(r['type'] for r in csv.DictReader(open(sys.argv[1]))))" "$repo/analysis/pivot_columns.csv")
+  contract_cols=$($py -I -c "import csv,sys; print(','.join(r['column'] for r in csv.DictReader(open(sys.argv[1]))))" "$repo/analyse/pivot_columns.csv")
+  contract_types=$($py -I -c "import csv,sys; print(','.join(r['type'] for r in csv.DictReader(open(sys.argv[1]))))" "$repo/analyse/pivot_columns.csv")
   check "pivot: xlsx columns and order match the contract" 0 test "$(dq -c "LOAD excel; SELECT string_agg(column_name, ',') FROM (DESCRIBE SELECT * FROM read_xlsx('$ana/photos_pivot.xlsx', sheet = 'photos', all_varchar = true))")" = "$contract_cols"
   check "pivot: column types match the contract" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(column_type, ',') FROM (DESCRIBE photos_pivot)")" = "$contract_types"
   check "pivot: one row per file" 0 test "$(dq -c "LOAD excel; SELECT count(*) FROM read_xlsx('$ana/photos_pivot.xlsx', sheet = 'photos', all_varchar = true)")" = 10
   check "pivot: files in the scan root are (root)" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder FROM photos_pivot WHERE name = 'root.txt'")" = "(root)|(root)"
   check "pivot: folder is relative, folder_path is full" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || folder || '|' || (folder_path = '$d/vol/Photos/2014/Trip') FROM photos_pivot WHERE name = 'IMG_0001.CR2'")" = "2014|2014/Trip|true"
   check "pivot: source values" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(source || '=' || n, ' ' ORDER BY source) FROM (SELECT source, count(*) AS n FROM photos_pivot GROUP BY 1)")" = "catalog only=1 filesystem and catalog=5 filesystem only=4"
-  check "scope: mapped run has only scanned files as rows" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) || '/' || count(*) FILTER (WHERE source = 'catalog only') FROM photos_pivot")" = "9/0"
+  check "scope: mapped analysis has only scanned files as rows" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) || '/' || count(*) FILTER (WHERE source = 'catalog only') FROM photos_pivot")" = "9/0"
   check "pivot: scan_root column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') FROM photos_pivot")" = "$d/vol/Photos"
   check "pivot: every row has the scan root" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE scan_root IS NULL")" = 0
 
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
 
   # Multiple scan roots: a second tree, Extra, with its own catalog root (Multi.lrcat, from make_fixture.py)
-  check "multi: nested scan roots refused" 1 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/2014" --catalog "$d/lr/Multi.lrcat" --out "$work/out_nested"
+  check "multi: nested scan roots refused" 1 $extract --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/2014" --catalog "$d/lr/Multi.lrcat" --out "$work/out_nested"
   cp "$work/last.out" "$work/nested.out"
   check "multi: says the roots are nested" 0 grep -q 'Scan roots are nested' "$work/nested.out"
-  check "multi: same scan root twice refused" 1 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/" --catalog "$d/lr/Multi.lrcat" --out "$work/out_twice"
+  check "multi: same scan root twice refused" 1 $extract --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/" --catalog "$d/lr/Multi.lrcat" --out "$work/out_twice"
   cp "$work/last.out" "$work/twice.out"
   check "multi: says the root is given twice" 0 grep -q 'Scan root given twice' "$work/twice.out"
   check "multi: refused runs wrote nothing" 0 test ! -e "$work/out_nested" -a ! -e "$work/out_twice"
-  check "multi: collector run with two roots" 0 $collect --scan-root "$d/vol/Photos" --scan-root "$d/vol/Extra" --catalog "$d/lr/Multi.lrcat" --out "$work/out_multi"
-  mrun=("$work"/out_multi/*(/N)); mrun="${mrun[1]:-$work/out_multi/none}"
+  check "multi: extract with two roots" 0 $extract --scan-root "$d/vol/Photos" --scan-root "$d/vol/Extra" --catalog "$d/lr/Multi.lrcat" --out "$work/out_multi"
+  mext=("$work"/out_multi/*(/N)); mext="${mext[1]:-$work/out_multi/none}"
   check "multi: manifest lists both roots with per-root counts" 0 $py -I -c "
 import json, sys
 m = json.load(open(sys.argv[1])); d = sys.argv[2]
 roots = [d + '/vol/Photos', d + '/vol/Extra']
 pr = m['files']['per_root']
 sys.exit(0 if m['scan_roots'] == roots and [pr[r]['rows'] for r in roots] == [9, 2]
-         and pr[roots[1]]['size_bytes'] == 5 and 'scan_root' not in m else 1)" "$mrun/manifest.json" "$d"
+         and pr[roots[1]]['size_bytes'] == 5 and 'scan_root' not in m else 1)" "$mext/manifest.json" "$d"
   check "multi: files.csv rel_path relative to its own root" 0 $py -I -c "
 import csv, sys
 r = {x['name']: x for x in csv.DictReader(open(sys.argv[1], encoding='utf-8'))}['X1.CR2']
-sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2', '2020', sys.argv[2]) else 1)" "$mrun/files.csv" "$d/vol/Extra"
-  check "multi: no overlap warning when every root is a catalog root" 1 grep -q 'does not overlap' "$mrun/collector.log"
-  check "multi: analysis" 0 $runsh "$mrun" --out "$work/ana_multi"
+sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2', '2020', sys.argv[2]) else 1)" "$mext/files.csv" "$d/vol/Extra"
+  check "multi: no overlap warning when every root is a catalog root" 1 grep -q 'does not overlap' "$mext/extract.log"
+  check "multi: analysis" 0 $anash "$mext" --out "$work/ana_multi"
   for metric value in disk_files 11 matched 6 disk_only 5 catalog_only 1 catalog_outside_scan_root 0; do
     check "multi: join $metric = $value" 0 metric_is "$work/ana_multi/join_check.csv" $metric $value
   done
@@ -292,23 +295,6 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
   check "multi: volume_by_scan_root per root and source" 0 test "$(rq "SELECT string_agg(regexp_extract(scan_root, '[^/]+\$') || ':' || source || '=' || files || '/' || bytes, ' ' ORDER BY scan_root, source) FROM read_csv('$work/ana_multi/reports/volume_by_scan_root.csv', all_varchar = true)")" = "Extra:filesystem and catalog=1/2 Extra:filesystem only=1/3 Photos:catalog only=1/0 Photos:filesystem and catalog=5/11137 Photos:filesystem only=4/16"
   check "multi: volume_by_folder split by scan root" 0 test "$(rq "SELECT count(DISTINCT scan_root) FROM read_csv('$work/ana_multi/reports/volume_by_folder.csv', all_varchar = true)")" = 2
 
-  # Runs collected before multiple scan roots: no scan_root column, single scan_root in the manifest
-  cp -R "$run" "$work/old_format"
-  $py -I -c "
-import csv, hashlib, json, sys
-run = sys.argv[1]
-rows = list(csv.reader(open(run + '/files.csv', newline='', encoding='utf-8')))
-i = rows[0].index('scan_root')
-csv.writer(open(run + '/files.csv', 'w', newline='', encoding='utf-8'), lineterminator='\n').writerows(r[:i] + r[i+1:] for r in rows)
-m = json.load(open(run + '/manifest.json'))
-m['scan_root'] = m.pop('scan_roots')[0]
-m['files'].pop('per_root'); m['files']['columns'].remove('scan_root')
-m['files']['sha256'] = hashlib.sha256(open(run + '/files.csv', 'rb').read()).hexdigest()
-json.dump(m, open(run + '/manifest.json', 'w'), indent=2)" "$work/old_format"
-  check "old format: files.csv has no scan_root column" 1 grep -q 'scan_root' "$work/old_format/files.csv"
-  check "old format: analysis" 0 $runsh "$work/old_format" --out "$work/ana_oldformat"
-  check "old format: same join check and reports as the new format" 0 sh -c "diff '$ana/join_check.csv' '$work/ana_oldformat/join_check.csv' && diff -r '$ana/reports' '$work/ana_oldformat/reports'"
-  check "old format: pivot rows carry the single scan root" 0 test "$(dq "$work/ana_oldformat/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') || '/' || count(*) FROM photos_pivot")" = "$d/vol/Photos/10"
 
   # Hints, with planted cases on a copy of the database
   mkdir -p "$work/hints" && cp "$ana/analysis.duckdb" "$work/hints/"
@@ -318,57 +304,54 @@ json.dump(m, open(run + '/manifest.json', 'w'), indent=2)" "$work/old_format"
       ('$d/vol/Photos/2015/IMG_8.CR2', '2015', 'IMG_8.CR2', 'cr2', 24000000, true, false, 'raw', NULL),
       ('$d/vol/Photos/2015/IMG_8.dng', '2015', 'IMG_8.dng', 'dng', 26000000, true, true, 'raw', 'photo');
     INSERT INTO catalog_entries (file_id, catalog_role, path, match_key, in_scope) VALUES
-      (900, 'photo', '/old tree/2018/IMG_9.CR2', '/old tree/2018/img_9.cr2', false)\" -c '.read $repo/analysis/30_pivot.sql' > /dev/null"
+      (900, 'photo', '/old tree/2018/IMG_9.CR2', '/old tree/2018/img_9.cr2', false)\" -c '.read $repo/analyse/30_pivot.sql' > /dev/null"
   check "pivot: moved? also when the name is only outside the scan root" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint || '|' || catalog_folder FROM photos_pivot WHERE name = 'IMG_9.CR2' AND source = 'filesystem only'")" = "moved?|/old tree/2018"
   check "pivot: raw next to its DNG gets dng original?" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint FROM photos_pivot WHERE name = 'IMG_8.CR2'")" = "dng original?"
   check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 2
 
   # Default output: filed by client and machine, latest per machine
-  cl_dir="$work/clients"; runsh_c=(env PSA_CLIENTS_DIR="$cl_dir" zsh "$repo/analysis/run.sh")
-  check "clients: default output for test/m1" 0 $runsh_c "$run"
+  cl_dir="$work/clients"; anash_c=(env PSA_CLIENTS_DIR="$cl_dir" zsh "$repo/analyse/analyse.sh")
+  check "clients: default output for test/m1" 0 $anash_c "$ext"
   cp "$work/last.out" "$work/clients_m1.out"
-  check "clients: analysis filed under client/machine/analysis/run" 0 test -f "$cl_dir/test/m1/analysis/${run:t}/photos_pivot.xlsx"
-  check "clients: latest per machine holds this run's pivot file" 0 cmp -s "$cl_dir/test/m1/analysis/${run:t}/photos_pivot.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
+  check "clients: analysis filed under client/machine/analysis/extract" 0 test -f "$cl_dir/test/m1/analysis/${ext:t}/photos_pivot.xlsx"
+  check "clients: latest per machine holds this extract's pivot file" 0 cmp -s "$cl_dir/test/m1/analysis/${ext:t}/photos_pivot.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
   check "clients: summary names client and machine" 0 grep -q 'client: test, machine: m1' "$work/clients_m1.out"
   cp "$cl_dir/test/m1/latest/photos_pivot.xlsx" "$work/latest_m1.xlsx"
-  check "clients: second machine of another client" 0 $runsh_c "$(onerun "$work/out_set")"
+  check "clients: second machine of another client" 0 $anash_c "$(oneext "$work/out_set")"
   check "clients: its own latest" 0 test -f "$cl_dir/acme/anna/latest/photos_pivot.xlsx"
   check "clients: other machine's latest unchanged" 0 cmp -s "$work/latest_m1.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
-  check "clients: --out leaves latest alone" 0 sh -c "PSA_CLIENTS_DIR='$work/clients2' zsh '$repo/analysis/run.sh' '$run' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/clients2'"
-  check "clients: --client differing from the manifest stops" 1 $runsh_c "$run" --client other --replace
-  check "clients: PSA_ANALYSIS_DIR set stops" 1 env PSA_ANALYSIS_DIR="$work/base" zsh "$repo/analysis/run.sh" "$run" --out "$work/ana_oldvar"
-  check "clients: PSA_ANALYSIS_DIR stop wrote nothing" 0 test ! -e "$work/ana_oldvar" -a ! -e "$work/base"
-  # A run collected before labels: none in the manifest
-  cp -R "$run" "$work/unlabelled"
+  check "clients: --out leaves latest alone" 0 sh -c "PSA_CLIENTS_DIR='$work/clients2' zsh '$repo/analyse/analyse.sh' '$ext' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/clients2'"
+  # Extracts made by another version are refused, not converted
+  cp -R "$ext" "$work/oldschema"
   $py -I -c "
 import json, sys
 p = sys.argv[1] + '/manifest.json'; m = json.load(open(p))
-del m['client'], m['machine']; json.dump(m, open(p, 'w'), indent=2)" "$work/unlabelled"
-  check "clients: unlabelled run without --client/--machine stops" 1 $runsh_c "$work/unlabelled"
-  check "clients: unlabelled run filed by --client and --machine" 0 $runsh_c "$work/unlabelled" --client old --machine m5
-  check "clients: filed under old/m5" 0 test -f "$cl_dir/old/m5/analysis/${run:t}/photos_pivot.xlsx" -a -f "$cl_dir/old/m5/latest/photos_pivot.xlsx"
-  check "clients: invalid --machine stops" 1 $runsh_c "$work/unlabelled" --client old --machine 'M 5' --replace
-  check "clients: unlabelled run with --out needs no labels" 0 $runsh_c "$work/unlabelled" --out "$work/ana_unlabelled"
+m['schema'] = 1; json.dump(m, open(p, 'w'), indent=2)" "$work/oldschema"
+  check "schema: older extract refused" 1 $anash "$work/oldschema" --out "$work/ana_oldschema"
+  cp "$work/last.out" "$work/oldschema.out"
+  check "schema: says to extract again" 0 grep -q 'extract again with the current version' "$work/oldschema.out"
+  check "schema: refused extract wrote nothing" 0 test ! -e "$work/ana_oldschema"
+  check "options: --client is not an analyse option" 1 $anash "$ext" --client test --out "$work/ana_noclient"
 
-  # Usage text: one copy, in the header; every option run.sh accepts is in it
-  check "usage: no collection given stops" 1 zsh "$repo/analysis/run.sh" --client test --machine m5
+  # Usage text: one copy, in the header; every option analyse.sh accepts is in it
+  check "usage: no extract given stops" 1 zsh "$repo/analyse/analyse.sh"
   cp "$work/last.out" "$work/usage.out"
-  check "usage: says the collection is missing" 0 grep -q 'no collection given' "$work/usage.out"
-  opts=(${(f)"$(grep -oE '^ +(-[a-z]\|)?--[a-z-]+\)' "$repo/analysis/run.sh" | grep -oE -- '--[a-z-]+')"})
-  check "usage: run.sh accepts options" 0 test ${#opts} -ge 7
+  check "usage: says the extract is missing" 0 grep -q 'no extract given' "$work/usage.out"
+  opts=(${(f)"$(grep -oE '^ +(-[a-z]\|)?--[a-z-]+\)' "$repo/analyse/analyse.sh" | grep -oE -- '--[a-z-]+')"})
+  check "usage: analyse.sh accepts options" 0 test ${#opts} -ge 5
   for o in $opts; do
     check "usage: lists $o" 0 grep -q -- "$o" "$work/usage.out"
   done
-  check "usage: --help exits 0 with the usage" 0 sh -c "zsh '$repo/analysis/run.sh' --help | grep -q '^Usage:'"
-  check "usage: unknown option shows the usage" 0 sh -c "zsh '$repo/analysis/run.sh' --nonsense 2>&1 | grep -q '\-\-client / \-\-machine'"
+  check "usage: --help exits 0 with the usage" 0 sh -c "zsh '$repo/analyse/analyse.sh' --help | grep -q '^Usage:'"
+  check "usage: unknown option shows the usage" 0 sh -c "zsh '$repo/analyse/analyse.sh' --nonsense 2>&1 | grep -q '\-\-path-from / \-\-path-to'"
 
-  # Regression check (./psa regress), against a baseline made from the test run
+  # Regression check (./psa regress), against a baseline made from the test extract
   rg() {  # rg <baseline> [args...]: run regress, keep output in $work/rg.out
     local b="$1"; shift
-    PSA_BASELINE="$b" zsh "$repo/analysis/regress.sh" "$@" > "$work/rg.out" 2>&1
+    PSA_BASELINE="$b" zsh "$repo/analyse/regress.sh" "$@" > "$work/rg.out" 2>&1
   }
   verdict() { grep '^regression:' "$work/rg.out"; }
-  mkbase() { rm -rf "$1"; mkdir -p "$1"; cp -R "$run" "$1/run"; cp -R "$ana" "$1/analysis"; }
+  mkbase() { rm -rf "$1"; mkdir -p "$1"; cp -R "$ext" "$1/extract"; cp -R "$ana" "$1/analysis"; }
   mkbase "$work/bl"
   check "regress: unchanged baseline gives exit 0" 0 rg "$work/bl"
   check "regress: verdict no differences" 0 test "$(verdict)" = "regression: no differences"
@@ -381,7 +364,7 @@ del m['client'], m['machine']; json.dump(m, open(p, 'w'), indent=2)" "$work/unla
   check "regress: summary shows examples and the diff file" 0 sh -c "grep -q 'examples (full diff: ' '$work/rg.out' && grep -q '^ *-.*,raw_x,' '$work/rg.out'"
   check "regress: full diff written to a file" 0 sh -c "f=\$(sed -n 's/.*examples (full diff: \(.*\)):/\1/p' '$work/rg.out' | head -1); test -s \"\$f\" && grep -q '^@@' \"\$f\""
   check "regress: no full diff on screen by default" 1 grep -q '^@@' "$work/rg.out"
-  check "regress: --full prints the full diff" 1 sh -c "PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --full > '$work/rg.out' 2>&1"
+  check "regress: --full prints the full diff" 1 sh -c "PSA_BASELINE='$work/bl' zsh '$repo/analyse/regress.sh' --full > '$work/rg.out' 2>&1"
   check "regress: --full output has the diff" 0 grep -q '^@@' "$work/rg.out"
 
   # two columns changed in the same rows, as with a rename
@@ -451,7 +434,7 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
   check "regress: baseline pivot file that is not a tool output gives exit 1" 1 rg "$work/bl"
   check "regress: says the baseline file is not a tool output" 0 grep -q "baseline file is not a tool output" "$work/rg.out"
   check "regress: other outputs still compared" 0 test "$(verdict)" = "regression: differences in photos_pivot.xlsx"
-  check "regress: --refresh repairs it" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  check "regress: --refresh repairs it" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analyse/regress.sh' --refresh > '$work/rg.out' 2>&1"
   check "regress: no differences after the repair" 0 rg "$work/bl"
 
   mkbase "$work/bl"; rm "$work/bl/analysis/photos_pivot.xlsx"
@@ -459,21 +442,21 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
   check "regress: says pivot not compared" 0 grep -q "baseline has no photos_pivot.xlsx; not compared" "$work/rg.out"
 
   check "regress: missing baseline gives exit 2" 2 rg "$work/nobaseline"
-  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline collection missing" "$work/rg.out"
+  check "regress: says why it could not run" 0 grep -q "^regression: could not run: baseline extract missing" "$work/rg.out"
 
   mkbase "$work/bl"; sed -i.bak 's/^matched,5$/matched,6/' "$work/bl/analysis/join_check.csv"; rm -f "$work/bl/analysis/join_check.csv.bak"
-  runsum=$(cd "$work/bl/run" && ls -lR | cksum)
-  check "regress: --refresh answered n keeps the baseline" 1 sh -c "printf 'n\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  extsum=$(cd "$work/bl/extract" && ls -lR | cksum)
+  check "regress: --refresh answered n keeps the baseline" 1 sh -c "printf 'n\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analyse/regress.sh' --refresh > '$work/rg.out' 2>&1"
   check "regress: baseline unchanged after n" 0 grep -q '^matched,6$' "$work/bl/analysis/join_check.csv"
-  check "regress: --refresh answered y replaces the analysis" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analysis/regress.sh' --refresh > '$work/rg.out' 2>&1"
+  check "regress: --refresh answered y replaces the analysis" 1 sh -c "printf 'y\\n' | PSA_BASELINE='$work/bl' zsh '$repo/analyse/regress.sh' --refresh > '$work/rg.out' 2>&1"
   check "regress: baseline analysis is the new one" 0 grep -q '^matched,5$' "$work/bl/analysis/join_check.csv"
   check "regress: previous analysis kept" 0 sh -c "ls -d '$work/bl'/analysis.* > /dev/null 2>&1 && grep -q '^matched,6$' '$work/bl'/analysis.*/join_check.csv"
-  check "regress: baseline run untouched" 0 test "$(cd "$work/bl/run" && ls -lR | cksum)" = "$runsum"
+  check "regress: baseline extract untouched" 0 test "$(cd "$work/bl/extract" && ls -lR | cksum)" = "$extsum"
   check "regress: after refresh, no differences" 0 rg "$work/bl"
   check "psa: regress command dispatches" 0 sh -c "PSA_BASELINE='$work/bl' zsh '$repo/psa' regress 2>/dev/null | grep -q '^regression: no differences'"
 
-  rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['run_id'])" "$run/manifest.json")
-  check "reports: every report stamped with run_id" 0 test "$(rq "SELECT count(DISTINCT run_id) || '/' || min(run_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
+  rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['extract_id'])" "$ext/manifest.json")
+  check "reports: every report stamped with extract_id" 0 test "$(rq "SELECT count(DISTINCT extract_id) || '/' || min(extract_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
   check "reports: raw = 2 files, 9000 bytes" 0 test "$(rq "SELECT files || '/' || bytes FROM '$ana/reports/volume_by_type.csv' WHERE type_group = 'raw'")" = "2/9000"
   check "reports: by year sums to 9 files" 0 test "$(rq "SELECT sum(files) FROM '$ana/reports/volume_by_year.csv'")" = 9
   check "reports: 2014 = 2 files dated by catalog" 0 test "$(rq "SELECT files || '/' || dated_by_catalog FROM '$ana/reports/volume_by_year.csv' WHERE capture_year = 2014")" = "2/2"
@@ -484,34 +467,28 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
 fi
 
 # Scan date: client's local time with UTC offset (fixed zone without DST: +05:30)
-check "scan date: collector run in another time zone" 0 env TZ=Asia/Kolkata $collect $args --out "$work/out_tz"
-tzrun=("$work"/out_tz/*(/N)); tzrun="${tzrun[1]:-$work/out_tz/none}"
+check "scan date: extract in another time zone" 0 env TZ=Asia/Kolkata $extract $args --out "$work/out_tz"
+tzext=("$work"/out_tz/*(/N)); tzext="${tzext[1]:-$work/out_tz/none}"
 check "scan date: manifest has local time with offset, same moment as finished" 0 $py -I -c "
 import json, sys, datetime as dt
 m = json.load(open(sys.argv[1]))
 loc = dt.datetime.fromisoformat(m['finished_local'])
 utc = dt.datetime.strptime(m['finished'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
-sys.exit(0 if m['finished_local'].endswith('+05:30') and loc == utc else 1)" "$tzrun/manifest.json"
-check "scan date: analysis of that run" 0 zsh "$repo/analysis/run.sh" "$tzrun" --out "$work/ana_tz"
+sys.exit(0 if m['finished_local'].endswith('+05:30') and loc == utc else 1)" "$tzext/manifest.json"
+check "scan date: analysis of that extract" 0 zsh "$repo/analyse/analyse.sh" "$tzext" --out "$work/ana_tz"
 check "scan date: reports show local time with offset" 0 test "$(env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "SELECT count(*) FILTER (WHERE NOT scan_date LIKE '% %:%:%+05:30') || '/' || count(*) FROM read_csv('$work/ana_tz/reports/*.csv', union_by_name = true, all_varchar = true)" | cut -d/ -f1)" = 0
-cp -R "$tzrun" "$work/old_manifest"
-$py -I -c "
-import json, sys
-p = sys.argv[1]; m = json.load(open(p)); m.pop('finished_local'); json.dump(m, open(p, 'w'))" "$work/old_manifest/manifest.json"
-check "scan date: older manifest analyses" 0 zsh "$repo/analysis/run.sh" "$work/old_manifest" --out "$work/ana_old"
-check "scan date: older manifest falls back to UTC with +00:00" 0 test "$(env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "SELECT DISTINCT scan_date FROM read_csv('$work/ana_old/reports/volume_by_type.csv', all_varchar = true)")" = "$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['finished'].replace('T',' ').replace('Z','+00:00'))" "$work/old_manifest/manifest.json")"
 
 # Transfer (a plain copy) and verify
 mkdir -p "$work/recv" "$work/incomplete"; touch "$work/incomplete/files.csv"
-cp -R "$run" "$work/recv/"
-recv="$work/recv/${run:t}"
-check "run.sh: refuses a folder without manifest" 1 zsh "$repo/analysis/run.sh" "$work/incomplete" --out "$work/ana_incomplete"
-check "run.sh: analyses a copied run folder" 0 zsh "$repo/analysis/run.sh" "$recv" --out "$work/ana_recv"
-check "verify: intact run passes" 0 $py -I "$repo/analysis/verify.py" "$recv"
+cp -R "$ext" "$work/recv/"
+recv="$work/recv/${ext:t}"
+check "analyse: refuses a folder without manifest" 1 zsh "$repo/analyse/analyse.sh" "$work/incomplete" --out "$work/ana_incomplete"
+check "analyse: analyses a copied extract" 0 zsh "$repo/analyse/analyse.sh" "$recv" --out "$work/ana_recv"
+check "verify: intact extract passes" 0 $py -I "$repo/analyse/verify.py" "$recv"
 print x >> "$recv/files.csv"
-check "verify: modified files.csv fails" 1 $py -I "$repo/analysis/verify.py" "$recv"
-check "run.sh: stops when verification fails" 1 zsh "$repo/analysis/run.sh" "$recv" --out "$work/ana_bad"
-check "run.sh: no output after failed verification" 0 test ! -e "$work/ana_bad"
+check "verify: modified files.csv fails" 1 $py -I "$repo/analyse/verify.py" "$recv"
+check "analyse: stops when verification fails" 1 zsh "$repo/analyse/analyse.sh" "$recv" --out "$work/ana_bad"
+check "analyse: no output after failed verification" 0 test ! -e "$work/ana_bad"
 
 # Update check (./psa), against a local stand-in for GitHub
 G=(git -c user.name=test -c user.email=test@example.invalid -c advice.detachedHead=false -c push.negotiate=false)
@@ -537,7 +514,7 @@ check "psa: after an update, the new psa continues the run" 0 sh -c "zsh '$cl/ps
 $py -I -c "
 import sys
 p = sys.argv[1]; s = open(p).read()
-s = s.replace('check-catalog|collect|analyse|regress|status) known=1 ;;', 'check-catalog|collect|analyse|regress|status|hello) known=1 ;;')
+s = s.replace('check-catalog|extract|analyse|regress|status) known=1 ;;', 'check-catalog|extract|analyse|regress|status|hello) known=1 ;;')
 s = s.replace('  status)\n', '  hello) print \"hello from new psa\" ;;\n  status)\n', 1)
 open(p, 'w').write(s)" "$up/dev/psa"
 $G -C "$up/dev" commit -q -am "new command"; $G -C "$up/dev" push -q origin main
@@ -566,25 +543,25 @@ cp -R "$cl" "$up/nogit"; rm -rf "$up/nogit/.git"
 check "psa: not a git checkout is a warning" 0 test "$(zsh "$up/nogit/psa" status 2> /dev/null | sed -n 's/^status: //p')" = not_a_checkout
 
 # Update check result in the manifest, and the commit warning in analyse
-check "psa: collect runs" 0 zsh "$cl/psa" collect --client test --machine m1 --scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat" --out "$up/out"
-prun=("$up"/out/*(/N)); prun="${prun[1]:-$up/out/none}"
-uc() { $py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['collector']['update_check']['status'])" "$1/manifest.json"; }
-check "manifest: update check recorded by psa" 0 test "$(uc "$prun")" = up_to_date
-check "manifest: direct call records not_run" 0 test "$(uc "$run")" = not_run
-check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$prun' --out '$up/ana_same' 2>&1 | grep -q 'collection made with commit'"
-check "run.sh: warns when the run was collected with another commit" 0 sh -c "zsh '$repo/analysis/run.sh' '$prun' --out '$up/ana_other' 2>&1 | grep -q 'collection made with commit'"
+check "psa: extract runs" 0 zsh "$cl/psa" extract --client test --machine m1 --scan-root "$d/vol/Photos" --catalog "$d/lr/Test.lrcat" --out "$up/out"
+pext=("$up"/out/*(/N)); pext="${pext[1]:-$up/out/none}"
+uc() { $py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['tool']['update_check']['status'])" "$1/manifest.json"; }
+check "manifest: update check recorded by psa" 0 test "$(uc "$pext")" = up_to_date
+check "manifest: direct call records not_run" 0 test "$(uc "$ext")" = not_run
+check "psa: analyse on the same commit gives no commit warning" 1 sh -c "zsh '$cl/psa' analyse '$pext' --out '$up/ana_same' 2>&1 | grep -q 'extract made with commit'"
+check "analyse: warns when the extract was made with another commit" 0 sh -c "zsh '$repo/analyse/analyse.sh' '$pext' --out '$up/ana_other' 2>&1 | grep -q 'extract made with commit'"
 
 # Settings file found by psa
 hm="$up/home"; mkdir -p "$hm/photo-analysis"; cp "$sd/two.env" "$hm/photo-analysis/settings.env"
-check "psa: default settings file used without arguments" 0 env -u PSA_SETTINGS HOME="$hm" zsh "$cl/psa" collect --out "$up/out_set_default"
-check "psa: manifest names the default settings file" 0 test "$(mq "$(onerun "$up/out_set_default")" "m['settings']['file']")" = "\"$hm/photo-analysis/settings.env\""
-check "psa: PSA_SETTINGS names another file" 0 env PSA_SETTINGS="$sd/home.env" HOME="$d" zsh "$cl/psa" collect --client test --machine m1 --out "$up/out_set_env"
-check "psa: manifest names the PSA_SETTINGS file" 0 test "$(mq "$(onerun "$up/out_set_env")" "m['settings']['file']")" = "\"$sd/home.env\""
-check "psa: PSA_SETTINGS empty means no settings file" 1 env PSA_SETTINGS= HOME="$hm" zsh "$cl/psa" collect --out "$up/out_set_off"
+check "psa: default settings file used without arguments" 0 env -u PSA_SETTINGS HOME="$hm" zsh "$cl/psa" extract --out "$up/out_set_default"
+check "psa: manifest names the default settings file" 0 test "$(mq "$(oneext "$up/out_set_default")" "m['settings']['file']")" = "\"$hm/photo-analysis/settings.env\""
+check "psa: PSA_SETTINGS names another file" 0 env PSA_SETTINGS="$sd/home.env" HOME="$d" zsh "$cl/psa" extract --client test --machine m1 --out "$up/out_set_env"
+check "psa: manifest names the PSA_SETTINGS file" 0 test "$(mq "$(oneext "$up/out_set_env")" "m['settings']['file']")" = "\"$sd/home.env\""
+check "psa: PSA_SETTINGS empty means no settings file" 1 env PSA_SETTINGS= HOME="$hm" zsh "$cl/psa" extract --out "$up/out_set_off"
 cp "$work/last.out" "$up/set_off.out"
 check "psa: says there is no scan root" 0 grep -q 'No scan root' "$up/set_off.out"
-check "psa: PSA_SETTINGS naming a missing file stops" 1 env PSA_SETTINGS="$sd/none.env" zsh "$cl/psa" collect --out "$up/out_set_off"
-check "psa: without a settings file, none is reported" 0 sh -c "env -u PSA_SETTINGS HOME='$up/nohome' zsh '$cl/psa' collect --client test --machine m1 --scan-root '$d/vol/Photos' --skip-catalog --out '$up/out_set_none' 2>&1 | grep -q 'Settings file: none'"
+check "psa: PSA_SETTINGS naming a missing file stops" 1 env PSA_SETTINGS="$sd/none.env" zsh "$cl/psa" extract --out "$up/out_set_off"
+check "psa: without a settings file, none is reported" 0 sh -c "env -u PSA_SETTINGS HOME='$up/nohome' zsh '$cl/psa' extract --client test --machine m1 --scan-root '$d/vol/Photos' --skip-catalog --out '$up/out_set_none' 2>&1 | grep -q 'Settings file: none'"
 check "psa: check-catalog takes CATALOG from the default file" 0 sh -c "env -u PSA_SETTINGS HOME='$hm' zsh '$cl/psa' check-catalog 2>&1 | grep -qF 'CATALOG from settings file: $d/lr/Multi.lrcat'"
 check "psa: stopped settings runs wrote nothing" 0 test ! -e "$up/out_set_off"
 

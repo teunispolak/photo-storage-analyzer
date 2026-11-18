@@ -11,12 +11,12 @@ COPY (
                  ELSE 6 END AS bucket_order
         FROM photos WHERE on_disk
     )
-    SELECT r.run_id, r.scan_date, b.bucket_order,
+    SELECT r.extract_id, r.scan_date, b.bucket_order,
            ['<1 MB', '1-10 MB', '10-50 MB', '50-100 MB', '100 MB-1 GB', '>1 GB'][b.bucket_order] AS bucket,
            count(*) AS files,
            sum(b.size_bytes) AS bytes,
            round(sum(b.size_bytes) / 1e9, 2) AS gb
-    FROM b, run_info r
+    FROM b, extract_info r
     GROUP BY ALL
     ORDER BY b.bucket_order
 ) TO 'reports/size_buckets.csv' (HEADER);

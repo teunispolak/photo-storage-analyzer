@@ -1,6 +1,6 @@
-# Collector runbook
+# Extract runbook
 
-Runs on the client Mac. Produces a collection for the [analysis runbook](analysis.md).
+Runs on the client Mac. Produces an extract for the [Analyse runbook](analyse.md).
 
 ## Terms
 
@@ -8,8 +8,8 @@ Runs on the client Mac. Produces a collection for the [analysis runbook](analysi
 |---|---|
 | client | the customer; one name for all their machines |
 | machine | one Mac at a client, with its own disk and Lightroom catalog |
-| collection | what one run of the collector produces: a folder with `manifest.json`, `catalog.lrcat`, `files.csv` and `collector.log`. Its ID is `<client>_<machine>_<UTC timestamp>`, `run_id` in the files |
-| analysis | what `./psa analyse` produces from one collection: a folder with `analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx` and `reports/` |
+| extract | what `./psa extract` produces on one machine: metadata of the photo files and a copy of the Lightroom catalog, in a folder with `manifest.json`, `catalog.lrcat`, `files.csv` and `extract.log`. No photos. Its ID, `extract_id` in the files, is `<client>_<machine>_<UTC timestamp>` |
+| analysis | what `./psa analyse` produces from one extract: a folder with `analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx` and `reports/` |
 
 ## Prerequisites
 
@@ -32,18 +32,18 @@ Runs on the client Mac. Produces a collection for the [analysis runbook](analysi
    CATALOG="$HOME/Pictures/Lightroom/<name>.lrcat"
    SCAN_ROOT="/Volumes/<drive>/<photo root>"
    ```
-   `CLIENT` names the client, `MACHINE` this machine within the client, for example its user. Both are required, and start the collection ID; use lowercase letters, digits and hyphens. Use the same `CLIENT` on every machine of one client.
+   `CLIENT` names the client, `MACHINE` this machine within the client, for example its user. Both are required, and start the extract ID; use lowercase letters, digits and hyphens. Use the same `CLIENT` on every machine of one client.
    For photos in more than one folder tree, add a `SCAN_ROOT` line per tree. The roots must not be nested; preflight refuses a root inside another, or the same root twice. The log and the manifest give the files and volume per root.
-3. Run the collector:
+3. Extract:
    ```
-   ./psa collect
+   ./psa extract
    ```
    It prints the settings file and the values it took from it.
 
-   The collection goes to `~/photo-analysis/out/<collection ID>/`; `--out` changes the base folder. The output folder must not be inside a scan root or a Dropbox folder; preflight checks this.
+   The extract goes to `~/photo-analysis/extracts/<extract ID>/`; `--out` changes the base folder. The output folder must not be inside a scan root or a Dropbox folder; preflight checks this.
 4. When the log shows `Lightroom may be restarted now`, Lightroom can be reopened. The scan reads metadata only.
-5. Transfer the collection `~/photo-analysis/out/<collection ID>/` to the analysis machine.
-6. After the analysis has verified the received collection, the collection on the client Mac can be removed. Nothing is removed automatically.
+5. Transfer the extract `~/photo-analysis/extracts/<extract ID>/` to the analysis machine.
+6. After the analysis has verified the received extract, the extract on the client Mac can be removed. Nothing is removed automatically.
 
 The first time, macOS asks to allow Terminal access to the removable volume. Allow it.
 
@@ -51,13 +51,13 @@ Each `./psa` command first checks the repository against GitHub and updates it i
 
 ## Settings file
 
-`./psa collect` and `./psa check-catalog` read `~/photo-analysis/settings.env` when it exists. `PSA_SETTINGS=<file>` names another file; `PSA_SETTINGS=""` uses none.
+`./psa extract` and `./psa check-catalog` read `~/photo-analysis/settings.env` when it exists. `PSA_SETTINGS=<file>` names another file; `PSA_SETTINGS=""` uses none.
 
 - One `KEY="value"` per line; blank lines and lines starting with `#` are ignored.
 - `CLIENT` and `MACHINE`: once each, lowercase letters, digits and hyphens, at most 40 characters. `CATALOG`: the `.lrcat` file, once. `SCAN_ROOT`: a photo folder tree, one line per tree.
 - The file is read, not executed: `$HOME` and a leading `~` are expanded, nothing else.
 - Arguments replace the file's values: `--client`, `--machine` and `--catalog` (or the catalog argument of `check-catalog`) replace their key; any `--scan-root` replaces all `SCAN_ROOT` lines.
-- A line that is not `KEY="value"`, an unknown key, a key other than `SCAN_ROOT` twice, an empty value, an invalid label or a missing file stops the collector with exit 1, before anything is written.
+- A line that is not `KEY="value"`, an unknown key, a key other than `SCAN_ROOT` twice, an empty value, an invalid label or a missing file stops the extract with exit 1, before anything is written.
 
 The manifest records the file, its checksum, the values taken from it and the keys replaced by arguments.
 
@@ -68,7 +68,7 @@ The manifest records the file, its checksum, the values taken from it and the ke
 | `--client <client>`, `--machine <machine>` | client and machine labels; replace the settings file's `CLIENT` and `MACHINE` |
 | `--scan-root <folder>` | photo folder tree (repeatable); replaces the settings file's `SCAN_ROOT` lines |
 | `--catalog <file>` | the `.lrcat` file; replaces the settings file's `CATALOG` |
-| `--out <folder>` | base output folder (default `~/photo-analysis/out`) |
+| `--out <folder>` | base output folder (default `~/photo-analysis/extracts`) |
 | `--dropbox-root <folder>` | extra Dropbox folder to keep output out of (repeatable) |
 | `--skip-catalog` | scan only, no catalog copy |
 
@@ -78,7 +78,7 @@ The manifest records the file, its checksum, the values taken from it and the ke
 |---|---|
 | 0 | complete |
 | 1 | settings file or preflight failed; nothing written |
-| 2 | collection failed; no manifest, the collection is incomplete and the analysis refuses it |
+| 2 | extract failed; no manifest, the extract is incomplete and the analysis refuses it |
 
 ## Output
 
@@ -86,7 +86,7 @@ The manifest records the file, its checksum, the values taken from it and the ke
 |---|---|
 | `catalog.lrcat` | copy of the Lightroom catalog |
 | `files.csv` | one row per file under the scan roots, with the root it was found under |
-| `manifest.json` | collection metadata, counts, checksums; written last |
-| `collector.log` | log of the collector |
+| `manifest.json` | extract metadata, counts, checksums, tool version; written last |
+| `extract.log` | log of the extract |
 
-The collection holds customer data: file paths and the full Lightroom catalog (keywords, GPS, face names).
+The extract holds customer data: file paths and the full Lightroom catalog (keywords, GPS, face names).

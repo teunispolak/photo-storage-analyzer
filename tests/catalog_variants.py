@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Build catalog variants from the test catalog, to check that the columns in
-collector/check_catalog.py REQUIRED are exactly what analysis/10_load.sql needs.
+extract/check_catalog.py REQUIRED are exactly what analyse/10_load.sql needs.
 
 Usage: python3 tests/catalog_variants.py <src.lrcat> <check_catalog.py> <out_dir>
 
@@ -20,7 +20,7 @@ from pathlib import Path
 def build(src: Path, dest: Path, required: dict, drop=None) -> None:
     out = sqlite3.connect(f"file:{dest}", uri=True)
     # read the source without creating -wal/-shm next to it (Apple's SQLite
-    # keeps them after closing, and the collector then refuses the catalog)
+    # keeps them after closing, and the extract then refuses the catalog)
     out.execute("ATTACH ? AS src", (f"file:{src}?mode=ro&immutable=1",))
     for table, cols in required.items():
         keep = [c for c in cols if (table, c) != drop]
