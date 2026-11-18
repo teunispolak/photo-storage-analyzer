@@ -1,16 +1,16 @@
 #!/bin/zsh
-# Regression check: analyse the baseline run again and compare with the
+# Regression check: analyse the baseline extract again and compare with the
 # stored baseline analysis.
 #
 # Usage:
-#   analysis/regress.sh [--full] [--refresh]
+#   ./psa regress [--full] [--refresh]
 #
 #   --full      print the full diff of each output, not only the summary
 #   --refresh   after the comparison, replace baseline/analysis with the new
 #               output; asks for confirmation; the previous analysis is kept
-#               as analysis.<timestamp>; baseline/run is never touched
+#               as analysis.<timestamp>; baseline/extract is never touched
 #
-# PSA_BASELINE   baseline folder with run/ and analysis/
+# PSA_BASELINE   baseline folder with extract/ and analysis/
 #                (default: ~/photo-analysis/baseline)
 #
 # Compares reports/*.csv, join_check.csv and, when the baseline has one, the
@@ -36,22 +36,22 @@ done
 fail() { print "regression: could not run: $*"; exit 2; }
 db() { env -u AI_AGENT -u CLAUDECODE duckdb -bail "$@"; }
 
-[[ -d "$base/run" ]]      || fail "baseline collection missing: $base/run"
+[[ -d "$base/extract" ]]  || fail "baseline extract missing: $base/extract"
 [[ -d "$base/analysis" ]] || fail "baseline analysis folder missing: $base/analysis"
 command -v duckdb > /dev/null || fail "duckdb not found"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/psa-regress.XXXXXX") || fail "cannot create a temporary folder"
 new="$tmp/analysis"
-print "regress: analysing $base/run into $new"
-zsh "$repo/analysis/run.sh" "$base/run" --out "$new" > "$tmp/run.log" 2>&1 \
-  || { cat "$tmp/run.log"; fail "analysis failed (log: $tmp/run.log)"; }
+print "regress: analysing $base/extract into $new"
+zsh "$repo/analyse/analyse.sh" "$base/extract" --out "$new" > "$tmp/analyse.log" 2>&1 \
+  || { cat "$tmp/analyse.log"; fail "analysis failed (log: $tmp/analyse.log)"; }
 
 old="$base/analysis"
 differ=()
 mkdir -p "$tmp/diff"
 compare() {  # compare <label> <baseline csv> <new csv>: summary, adds to differ
   local d="$tmp/diff/${1//\//_}.diff"
-  python3 -I "$repo/analysis/compare_csv.py" "$1" "$2" "$3" "$d" $full
+  python3 -I "$repo/analyse/compare_csv.py" "$1" "$2" "$3" "$d" $full
   case $? in
     0) ;;
     1) differ+=("$1") ;;

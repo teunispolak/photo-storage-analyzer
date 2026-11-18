@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Photo storage assessment - collector.
+Photo storage assessment - extract.
 
-Runs on the client's Mac. Collects facts only; all interpretation happens
-on the analysis machine.
+Runs on the client's Mac. Extracts metadata only (file system and Lightroom
+catalog); all interpretation happens in the analysis.
 
 Steps:
   1. Settings file (--settings) and preflight checks (stop on any failure,
@@ -11,16 +11,16 @@ Steps:
   2. Copy the Lightroom catalog and verify the copy
   3. Scan the photo trees, one per --scan-root (metadata only, file contents
      are not read)
-  4. Write manifest.json last; its presence marks a complete run
+  4. Write manifest.json last; its presence marks a complete extract
 
-Output: <out>/<run_id>/, run_id = <client>_<machine>_<UTC timestamp>
+Output: <out>/<extract_id>/, extract_id = <client>_<machine>_<UTC timestamp>
   catalog.lrcat    copy of the Lightroom catalog
   files.csv        one row per file under the scan roots
-  manifest.json    run metadata, counts, checksums
-  collector.log    log of the collector
+  manifest.json    extract metadata, counts, checksums
+  extract.log      log of the extract
 
 Requires Python 3.9+, standard library only.
-Nothing is deleted or modified outside the collection folder.
+Nothing is deleted or modified outside the extract folder.
 """
 
 import argparse
@@ -42,8 +42,9 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional
 
-COLLECTOR_VERSION = "0.1.0"
-MANIFEST_SCHEMA = 1
+TOOL_VERSION = "0.2.0"
+# 2: extract_id, tool, extract.log, client, machine, scan_roots; the analysis refuses others
+MANIFEST_SCHEMA = 2
 CHUNK = 8 * 1024 * 1024
 PROGRESS_EVERY = 25_000
 
@@ -75,7 +76,7 @@ CSV_COLUMNS = [
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import settings as settings_file  # noqa: E402
 
-log = logging.getLogger("collector")
+log = logging.getLogger("extract")
 
 
 class PreflightError(Exception):
@@ -163,7 +164,7 @@ def lightroom_running() -> bool:
 
 # ---------------------------------------------------------------- preflight
 
-def preflight(args, run_dir: Path, extra_roots: List[Path]) -> dict:
+def preflight(args, extract_dir: Path, extra_roots: List[Path]) -> dict:
     problems = []
     facts = {}
 
@@ -229,8 +230,8 @@ def preflight(args, run_dir: Path, extra_roots: List[Path]) -> dict:
         problems.append(f"Not enough free space at {out_base}: "
                         f"{free / 1e9:.1f} GB free, {needed / 1e9:.1f} GB needed")
 
-    if run_dir.exists():
-        problems.append(f"Run folder already exists: {run_dir}")
+    if extract_dir.exists():
+        problems.append(f"Extract folder already exists: {extract_dir}")
 
     if problems:
         raise PreflightError("\n  - ".join(["Preflight failed:"] + problems))
@@ -239,9 +240,9 @@ def preflight(args, run_dir: Path, extra_roots: List[Path]) -> dict:
 
 # ---------------------------------------------------------------- catalog
 
-def copy_catalog(src: Path, run_dir: Path) -> dict:
-    dest = run_dir / "catalog.lrcat"
-    part = run_dir / "catalog.lrcat.part"
+def copy_catalog(src: Path, extract_dir: Path) -> dict:
+    dest = extract_dir / "catalog.lrcat"
+    part = extract_dir / "catalog.lrcat.part"
     log.info("Copying catalog %s (%.2f GB)", src, src.stat().st_size / 1e9)
     t0 = time.time()
 
@@ -289,9 +290,9 @@ def copy_catalog(src: Path, run_dir: Path) -> dict:
 
 # ---------------------------------------------------------------- scan
 
-def scan(scan_roots: List[Path], run_dir: Path) -> dict:
-    dest = run_dir / "files.csv"
-    part = run_dir / "files.csv.part"
+def scan(scan_roots: List[Path], extract_dir: Path) -> dict:
+    dest = extract_dir / "files.csv"
+    part = extract_dir / "files.csv.part"
     t0 = time.time()
 
     files = dirs = errors = 0
@@ -387,7 +388,7 @@ def scan(scan_roots: List[Path], run_dir: Path) -> dict:
 # ---------------------------------------------------------------- main
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description="Collect file and catalog data for a photo storage assessment.")
+    p = argparse.ArgumentParser(description="Extract file and catalog metadata for a photo storage assessment.")
     p.add_argument("--scan-root", type=Path, action="append", dest="scan_roots", default=[],
                    help="root of a photo folder tree (e.g. /Volumes/Photos/Photos); "
                         "repeat for more roots, roots must not be nested; "
@@ -397,8 +398,8 @@ def parse_args(argv=None):
     p.add_argument("--machine", help="machine within the client; replaces MACHINE of the settings file")
     p.add_argument("--settings", type=Path,
                    help="settings file with CATALOG and SCAN_ROOT (./psa passes it when it exists)")
-    p.add_argument("--out", type=Path, default=Path.home() / "photo-analysis" / "out",
-                   help="base output folder (default: ~/photo-analysis/out)")
+    p.add_argument("--out", type=Path, default=Path.home() / "photo-analysis" / "extracts",
+                   help="base output folder (default: ~/photo-analysis/extracts)")
     p.add_argument("--dropbox-root", type=Path, action="append", default=[],
                    help="extra Dropbox folder to treat as off-limits for output (repeatable)")
     p.add_argument("--skip-catalog", action="store_true",
@@ -479,27 +480,27 @@ def main(argv=None) -> int:
     log_settings(settings_record, log)
 
     host = socket.gethostname().split(".")[0]
-    # client and machine first, so the folder name says whose run it is
-    run_id = f"{args.client}_{args.machine}_" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = args.out / run_id
+    # client and machine first, so the folder name says whose extract it is
+    extract_id = f"{args.client}_{args.machine}_" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    extract_dir = args.out / extract_id
 
     try:
-        facts = preflight(args, run_dir, args.dropbox_root)
+        facts = preflight(args, extract_dir, args.dropbox_root)
     except PreflightError as e:
         log.error("%s", e)
         return 1
 
-    run_dir.mkdir(parents=True)  # first write; only after preflight passed
-    fh = logging.FileHandler(run_dir / "collector.log", encoding="utf-8")
+    extract_dir.mkdir(parents=True)  # first write; only after preflight passed
+    fh = logging.FileHandler(extract_dir / "extract.log", encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     log.addHandler(fh)
 
     script = Path(__file__).resolve()
     started = now_iso()
-    log.info("Collector %s, collection %s", COLLECTOR_VERSION, run_id)
+    log.info("Extract %s, tool version %s", extract_id, TOOL_VERSION)
     log.info("Client %s, machine %s, host %s", args.client, args.machine, host)
     # The settings lines went to the console before preflight; repeat them in the log file
-    file_log = logging.getLogger("collector.file")
+    file_log = logging.getLogger("extract.file")
     file_log.propagate = False
     file_log.addHandler(fh)
     file_log.setLevel(logging.INFO)
@@ -509,7 +510,7 @@ def main(argv=None) -> int:
     try:
         catalog = None
         if not args.skip_catalog:
-            catalog = copy_catalog(args.catalog, run_dir)
+            catalog = copy_catalog(args.catalog, extract_dir)
             log.info("=" * 60)
             log.info("Catalog copy complete. Lightroom may be restarted now.")
             log.info("=" * 60)
@@ -521,30 +522,30 @@ def main(argv=None) -> int:
                 if cat_txt and not any(root_txt.startswith(c) or c.startswith(root_txt) for c in cat_txt):
                     log.warning("Scan root %s does not overlap any catalog root folder %s; "
                                 "catalog paths will not match. Pass --scan-root as the catalog "
-                                "stores it, or map the prefix with run.sh --path-from/--path-to.",
+                                "stores it, or map the prefix with ./psa analyse --path-from/--path-to.",
                                 root_txt, catalog["root_folders"])
 
-        files = scan(args.scan_roots, run_dir)
+        files = scan(args.scan_roots, extract_dir)
 
         finished_ts = time.time()
         manifest = {
             "schema": MANIFEST_SCHEMA,
-            "run_id": run_id,
+            "extract_id": extract_id,
             "client": args.client,
             "machine": args.machine,
             "status": "complete",
             "started": started,
             "finished": utc_iso(finished_ts),
             "finished_local": local_iso(finished_ts),  # same moment, client's clock
-            "collector": {
-                "version": COLLECTOR_VERSION,
+            "tool": {
+                "version": TOOL_VERSION,
                 "git_commit": git_commit(script.parent),
                 "script_sha256": sha256_file(script),
                 "settings_module_sha256": settings_file.module_sha256(),
-                # set by ./psa; absent when the collector is called directly
+                # set by ./psa; absent when extract.py is called directly
                 "update_check": {
                     "status": os.environ.get("PSA_UPDATE_STATUS", "not_run"),
-                    "detail": os.environ.get("PSA_UPDATE_DETAIL", "collector called without ./psa"),
+                    "detail": os.environ.get("PSA_UPDATE_DETAIL", "extract.py called without ./psa"),
                 },
             },
             "host": {
@@ -560,16 +561,16 @@ def main(argv=None) -> int:
             "catalog": catalog,
             "files": files,
         }
-        part = run_dir / "manifest.json.part"
+        part = extract_dir / "manifest.json.part"
         part.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(part, run_dir / "manifest.json")
+        os.replace(part, extract_dir / "manifest.json")
     except Exception as e:  # noqa: BLE001 - log and exit non-zero, leave no manifest
-        log.exception("Collection failed: %s", e)
-        log.error("No manifest written; this collection is incomplete. Folder: %s", run_dir)
+        log.exception("Extract failed: %s", e)
+        log.error("No manifest written; this extract is incomplete. Folder: %s", extract_dir)
         return 2
 
-    log.info("Collection complete: %s", run_dir)
-    log.info("Next: transfer this collection to the analysis machine: %s", run_dir)
+    log.info("Extract complete: %s", extract_dir)
+    log.info("Next: transfer this extract to the analysis machine: %s", extract_dir)
     return 0
 
 

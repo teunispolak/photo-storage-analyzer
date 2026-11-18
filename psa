@@ -3,8 +3,8 @@
 #
 # Usage:
 #   ./psa check-catalog [<catalog.lrcat>] [--show-roots]
-#   ./psa collect [--client <c> --machine <m>] [--scan-root <folder>]... [--catalog <file>] [options]
-#   ./psa analyse <collection> [options]
+#   ./psa extract [--client <c> --machine <m>] [--scan-root <folder>]... [--catalog <file>] [options]
+#   ./psa analyse <extract> [options]
 #   ./psa regress [--full] [--refresh]
 #   ./psa status
 #
@@ -13,12 +13,12 @@
 # git pull --ff-only and the command restarts. In every other case
 # (no network, local changes, another branch, ahead or diverged, not a git
 # checkout) it warns and runs the script as it is. The result is passed to the
-# script in PSA_UPDATE_STATUS and PSA_UPDATE_DETAIL; the collector records it
+# script in PSA_UPDATE_STATUS and PSA_UPDATE_DETAIL; the extract records it
 # in the manifest.
 #
-# collect and check-catalog read the settings file ~/photo-analysis/settings.env
+# extract and check-catalog read the settings file ~/photo-analysis/settings.env
 # when it exists, or the file named in PSA_SETTINGS (PSA_SETTINGS="" for none):
-# CLIENT, MACHINE, CATALOG and SCAN_ROOT for arguments not given. See docs/collector.md.
+# CLIENT, MACHINE, CATALOG and SCAN_ROOT for arguments not given. See docs/extract.md.
 
 set -uo pipefail
 
@@ -96,7 +96,7 @@ case "$cmd" in
 esac
 known=0
 case "$cmd" in
-  check-catalog|collect|analyse|regress|status) known=1 ;;
+  check-catalog|extract|analyse|regress|status) known=1 ;;
 esac
 
 # Update check first, also for an unknown command: a newer psa may know it,
@@ -124,8 +124,8 @@ case "$cmd" in
     print "detail: $upd_detail"
     print "commit: $(git_repo rev-parse HEAD 2> /dev/null || print unknown)"
     ;;
-  check-catalog) exec $py -I "$repo/collector/check_catalog.py" "${settings_arg[@]}" "$@" ;;
-  collect)       exec $py -I "$repo/collector/collect.py" "${settings_arg[@]}" "$@" ;;
-  analyse)       exec zsh "$repo/analysis/run.sh" "$@" ;;
-  regress)       exec zsh "$repo/analysis/regress.sh" "$@" ;;
+  check-catalog) exec $py -I "$repo/extract/check_catalog.py" "${settings_arg[@]}" "$@" ;;
+  extract)       exec $py -I "$repo/extract/extract.py" "${settings_arg[@]}" "$@" ;;
+  analyse)       exec zsh "$repo/analyse/analyse.sh" "$@" ;;
+  regress)       exec zsh "$repo/analyse/regress.sh" "$@" ;;
 esac

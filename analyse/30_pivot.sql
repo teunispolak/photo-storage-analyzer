@@ -4,7 +4,7 @@
 -- Creates: view photos_located (photos with source and folder columns relative
 --          to each file's scan root,
 --          used by photos_pivot and reports/reconciliation.sql)
---          view photos_pivot (columns as in analysis/pivot_columns.csv)
+--          view photos_pivot (columns as in analyse/pivot_columns.csv)
 -- Writes:  photos_pivot.xlsx, sheet "photos"
 -- Needs DuckDB's excel extension; installed on first use.
 

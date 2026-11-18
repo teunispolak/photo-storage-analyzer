@@ -3,10 +3,10 @@
 Check that a Lightroom Classic catalog has the structure the analysis needs.
 
 Usage:
-  python3 collector/check_catalog.py <catalog.lrcat> [--show-roots]
+  python3 extract/check_catalog.py <catalog.lrcat> [--show-roots]
 
 Opens the catalog read-only and reports:
-  - required tables and columns (as used by analysis/10_load.sql)
+  - required tables and columns (as used by analyse/10_load.sql)
   - row counts and value shapes (counts only, no catalog content)
   - references that do not resolve (files without folder, etc.)
 With --show-roots it also prints the root folder paths, which tell you what to
@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import settings as settings_file  # noqa: E402
 
-# Must match the columns analysis/10_load.sql reads (checked by the tests)
+# Must match the columns analyse/10_load.sql reads (checked by the tests)
 REQUIRED = {
     "AgLibraryRootFolder": ["id_local", "absolutePath"],
     "AgLibraryFolder": ["id_local", "rootFolder", "pathFromRoot"],
