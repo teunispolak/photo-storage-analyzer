@@ -2,25 +2,25 @@
 # Photo storage analysis - turn a received run into reports.
 #
 # Usage:
-#   analysis/run.sh <run_dir> [--out <folder>] [--replace]
-#                   [--client <client> --machine <machine>]
-#                   [--path-from <prefix> --path-to <prefix>]
+#   ./psa analyse <collection> [--client <client> --machine <machine>]
+#                 [--out <folder>] [--replace] [--path-from <prefix> --path-to <prefix>]
 #
-#   run_dir      received collection (files.csv, catalog.lrcat, manifest.json)
-#   --out        output folder; default, filed by the run's client and machine:
-#                  $PSA_CLIENTS_DIR/<client>/<machine>/analysis/<run_id>/
-#                with photos_pivot.xlsx also copied to
-#                  $PSA_CLIENTS_DIR/<client>/<machine>/latest/
-#                for that machine's pivot workbook
+#   <collection>  received collection folder (manifest.json, catalog.lrcat, files.csv)
 #   --client / --machine
-#                labels for a collection made without them; must match the
-#                manifest when it has them
-#
-# PSA_CLIENTS_DIR    base folder for client output (default: ~/photo-analysis/clients)
-#   --replace    overwrite the generated files in an existing output folder
+#                 labels for a collection made without them; must match the
+#                 manifest when it has them
+#   --out         output folder; default, filed by the collection's client and machine:
+#                   $PSA_CLIENTS_DIR/<client>/<machine>/analysis/<collection ID>/
+#                 with photos_pivot.xlsx also copied to
+#                   $PSA_CLIENTS_DIR/<client>/<machine>/latest/
+#                 for that machine's pivot workbook
+#   --replace     overwrite the generated files in an existing output folder
 #   --path-from / --path-to
-#                replace a catalog path prefix, for a volume mounted under
-#                another name than the catalog expects
+#                 replace a catalog path prefix, for a volume mounted under
+#                 another name than the catalog expects
+#   -h, --help    show this usage
+#
+#   PSA_CLIENTS_DIR  base folder for client output (default: ~/photo-analysis/clients)
 #
 # Steps: verify -> load -> join -> pivot file -> reports -> summary.
 # The collection is only read: the catalog is read from a working copy in a
@@ -32,7 +32,11 @@
 set -euo pipefail
 
 repo="${0:A:h:h}"
+self="${0:A}"  # inside a function $0 is the function name
 die() { print -u2 "analyse: $*"; exit 1; }
+# The usage block of the header above is the only copy of the usage text
+usage() { sed -n '/^# Usage:/,/^# Steps:/p' "$self" | sed '$d' | sed 's/^# \{0,1\}//'; }
+die_usage() { print -u2 "analyse: $*"; print -u2; usage >&2; exit 1; }
 
 run_dir="" out="" replace=0 path_from="" path_to="" arg_client="" arg_machine=""
 while (( $# )); do
@@ -43,11 +47,12 @@ while (( $# )); do
     --machine)   arg_machine="${2:?--machine needs a name}"; shift 2 ;;
     --path-from) path_from="${2:?--path-from needs a prefix}"; shift 2 ;;
     --path-to)   path_to="${2:?--path-to needs a prefix}"; shift 2 ;;
-    -*)          die "unknown option: $1" ;;
+    -h|--help)   usage; exit 0 ;;
+    -*)          die_usage "unknown option: $1" ;;
     *)           [[ -z "$run_dir" ]] || die "more than one collection given"; run_dir="$1"; shift ;;
   esac
 done
-[[ -n "$run_dir" ]] || die "usage: analysis/run.sh <run_dir> [--out <folder>] [--replace] [--path-from <p> --path-to <p>]"
+[[ -n "$run_dir" ]] || die_usage "no collection given"
 [[ -n "$path_from" && -z "$path_to" || -z "$path_from" && -n "$path_to" ]] && die "--path-from and --path-to go together"
 # Replaced by PSA_CLIENTS_DIR; stop rather than write somewhere unexpected
 [[ -n "${PSA_ANALYSIS_DIR:-}" ]] && die "PSA_ANALYSIS_DIR is no longer used; output is filed under PSA_CLIENTS_DIR/<client>/<machine>/ (unset PSA_ANALYSIS_DIR)"

@@ -27,7 +27,7 @@ On the analysis machine (requires `brew install duckdb`):
 
 `./psa` first checks the repository against GitHub and updates it if it is behind, then runs the script. If it cannot update (no network, local changes, another branch), it warns and runs the scripts as they are. `./psa status` shows the result without running anything.
 
-This verifies the collection (the folder the collector produced), loads and joins it, and writes the analysis (`analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx`, `reports/*.csv`) to `~/photo-analysis/clients/<client>/<machine>/analysis/<collection ID>/`. Options: `--out`, `--replace`, `--path-from`/`--path-to`; see the header of `analysis/run.sh`. Commands: see the header of `psa`.
+This verifies the collection (the folder the collector produced), loads and joins it, and writes the analysis (`analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx`, `reports/*.csv`) to `~/photo-analysis/clients/<client>/<machine>/analysis/<collection ID>/`. Options: `./psa analyse --help`. Commands: `./psa help`.
 
 ## Tests
 
