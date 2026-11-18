@@ -19,24 +19,29 @@ Runs on the analysis machine. Starts from an extract received from the client, m
 
 ## Folders
 
+Extracts arrive in one inbox, `~/photo-analysis/extracts/`: a downloaded extract goes there, and `./psa extract` on this machine writes there. `./psa analyse` files each extract from the inbox in its client and machine folder; the inbox holds only extracts still to be analysed.
+
 Each client and each machine at a client has its own folder; machines are analysed separately.
 
 ```
 ~/photo-analysis/clients/<client>/<machine>/
-  extracts/    received extracts (put them here; the analysis does not move them)
+  extracts/    received extracts, filed here by ./psa analyse
   analysis/    one analysis per extract
   latest/      photos_pivot.xlsx of the last analysis, for this machine's workbook
   pivots.xlsx  your workbook for this machine
 ```
 
-Client and machine come from the extract's manifest; the extract ID starts with them, e.g. `acme_anna_20261118T091500Z`. `PSA_CLIENTS_DIR` moves the `clients` folder elsewhere.
+Client and machine come from the extract's manifest; the extract ID starts with them, e.g. `acme_anna_20261118T091500Z`. `PSA_EXTRACTS_DIR` moves the inbox, `PSA_CLIENTS_DIR` the `clients` folder.
 
 ## Steps
 
-1. Put the received extract in `~/photo-analysis/clients/<client>/<machine>/extracts/` and analyse it:
+1. Put a received extract in the inbox `~/photo-analysis/extracts/` (download it there); an extract made on this machine is there already. Analyse it:
    ```
-   ./psa analyse ~/photo-analysis/clients/<client>/<machine>/extracts/<extract ID>
+   ./psa analyse ~/photo-analysis/extracts/<extract ID>
    ```
+   It is verified, then filed: copied to `~/photo-analysis/clients/<client>/<machine>/extracts/<extract ID>/` (client and machine from its manifest), verified again, removed from the inbox, and analysed from the filed copy. If the copy fails, the extract stays in the inbox. An extract given from anywhere else, such as Downloads, is filed the same way but left where it was. To analyse an extract again, give its filed copy, with `--replace`.
+
+   An extract already filed under its ID stops the analysis rather than being overwritten, as does an extract inside `clients/` that is not at its own place.
    An extract made by an older version of the tool is refused; extract again.
 
    This verifies the extract against its manifest, loads and joins it, writes the reports and prints a summary. It stops before the join if verification fails, for example after an incomplete transfer.
@@ -49,7 +54,7 @@ Client and machine come from the extract's manifest; the extract ID starts with 
 
 | Option | Purpose |
 |---|---|
-| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<extract ID>`; `latest/` is then left alone |
+| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<extract ID>`; the extract is not filed and `latest/` is left alone |
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 

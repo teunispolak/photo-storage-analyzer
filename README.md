@@ -22,12 +22,12 @@ On the client Mac, with Lightroom closed, and client, machine, catalog and scan 
 On the analysis machine (requires `brew install duckdb`):
 
 ```
-./psa analyse <received extract>
+./psa analyse ~/photo-analysis/extracts/<extract ID>
 ```
 
 `./psa` first checks the repository against GitHub and updates it if it is behind, then runs the script. If it cannot update (no network, local changes, another branch), it warns and runs the scripts as they are. `./psa status` shows the result without running anything.
 
-This verifies the extract, loads and joins it, and writes the analysis (`analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx`, `reports/*.csv`) to `~/photo-analysis/clients/<client>/<machine>/analysis/<extract ID>/`. Options: `./psa analyse --help`. Commands: `./psa help`.
+This verifies the extract from the inbox `~/photo-analysis/extracts/`, files it in `~/photo-analysis/clients/<client>/<machine>/extracts/`, loads and joins it, and writes the analysis (`analysis.duckdb`, `join_check.csv`, `photos_pivot.xlsx`, `reports/*.csv`) to `~/photo-analysis/clients/<client>/<machine>/analysis/<extract ID>/`. Options: `./psa analyse --help`. Commands: `./psa help`.
 
 ## Tests
 
