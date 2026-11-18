@@ -23,7 +23,7 @@ Each client and each machine at a client has its own folder; machines are analys
 
 ```
 ~/photo-analysis/clients/<client>/<machine>/
-  extracts/    received extracts (put them here; the analysis does not move them)
+  extracts/    received extracts, filed here by ./psa analyse
   analysis/    one analysis per extract
   latest/      photos_pivot.xlsx of the last analysis, for this machine's workbook
   pivots.xlsx  your workbook for this machine
@@ -33,10 +33,13 @@ Client and machine come from the extract's manifest; the extract ID starts with 
 
 ## Steps
 
-1. Put the received extract in `~/photo-analysis/clients/<client>/<machine>/extracts/` and analyse it:
+1. Analyse the received extract where it is, for example in Downloads:
    ```
-   ./psa analyse ~/photo-analysis/clients/<client>/<machine>/extracts/<extract ID>
+   ./psa analyse ~/Downloads/<extract ID>
    ```
+   It is verified, then filed: copied to `~/photo-analysis/clients/<client>/<machine>/extracts/<extract ID>/` (client and machine from its manifest), verified again, and analysed from there. The original is left as it is; remove it yourself when the analysis is done. To analyse an extract again, give its filed copy, with `--replace`.
+
+   An extract already filed under its ID stops the analysis rather than being overwritten, as does an extract inside `clients/` that is not at its own place.
    An extract made by an older version of the tool is refused; extract again.
 
    This verifies the extract against its manifest, loads and joins it, writes the reports and prints a summary. It stops before the join if verification fails, for example after an incomplete transfer.
@@ -49,7 +52,7 @@ Client and machine come from the extract's manifest; the extract ID starts with 
 
 | Option | Purpose |
 |---|---|
-| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<extract ID>`; `latest/` is then left alone |
+| `--out <folder>` | output folder instead of `clients/<client>/<machine>/analysis/<extract ID>`; the extract is not filed and `latest/` is left alone |
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 

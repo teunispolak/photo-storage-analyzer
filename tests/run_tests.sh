@@ -311,6 +311,7 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
 
   # Default output: filed by client and machine, latest per machine
   cl_dir="$work/clients"; anash_c=(env PSA_CLIENTS_DIR="$cl_dir" zsh "$repo/analyse/analyse.sh")
+  (cd "$ext" && ls -lR | cksum) > "$work/ext_before_filing.sum"
   check "clients: default output for test/m1" 0 $anash_c "$ext"
   cp "$work/last.out" "$work/clients_m1.out"
   check "clients: analysis filed under client/machine/analysis/extract" 0 test -f "$cl_dir/test/m1/analysis/${ext:t}/photos_pivot.xlsx"
@@ -320,6 +321,31 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
   check "clients: second machine of another client" 0 $anash_c "$(oneext "$work/out_set")"
   check "clients: its own latest" 0 test -f "$cl_dir/acme/anna/latest/photos_pivot.xlsx"
   check "clients: other machine's latest unchanged" 0 cmp -s "$work/latest_m1.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
+  # Filing: the first default analysis copied the extract into its client and machine folder
+  fext="$cl_dir/test/m1/extracts/${ext:t}"
+  check "filing: copy filed under client/machine/extracts" 0 test -f "$fext/manifest.json"
+  check "filing: copy verifies" 0 $py -I "$repo/analyse/verify.py" "$fext"
+  check "filing: copy is complete, no partial copy left" 0 test "$(ls "$cl_dir/test/m1/extracts")" = "${ext:t}"
+  check "filing: original unchanged" 0 test "$(cd "$ext" && ls -lR | cksum)" = "$(cat "$work/ext_before_filing.sum")"
+  check "filing: output says the original can be removed" 0 grep -q "the original $ext can be removed" "$work/clients_m1.out"
+  check "filing: analysis reads the filed copy" 0 grep -qF "analysing the filed copy $fext" "$work/clients_m1.out"
+  check "filing: same extract again stops" 1 $anash_c "$ext" --replace
+  cp "$work/last.out" "$work/filing_again.out"
+  check "filing: names the filed copy" 0 grep -qF "already filed at $fext" "$work/filing_again.out"
+  check "filing: filed extract analyses in place" 0 $anash_c "$fext" --replace
+  cp "$work/last.out" "$work/filing_inplace.out"
+  check "filing: in place, nothing copied" 1 grep -q 'filing a copy' "$work/filing_inplace.out"
+  mkdir -p "$cl_dir/test/other"; cp -R "$fext" "$cl_dir/test/other/${ext:t}"
+  check "filing: extract in a wrong place under clients stops" 1 $anash_c "$cl_dir/test/other/${ext:t}"
+  cp "$work/last.out" "$work/filing_wrong.out"
+  check "filing: says it is not at its own place" 0 grep -q 'not at its own place' "$work/filing_wrong.out"
+  check "filing: --out files nothing" 0 sh -c "PSA_CLIENTS_DIR='$work/clients3' zsh '$repo/analyse/analyse.sh' '$ext' --out '$work/ana_nofile' > /dev/null 2>&1 && test ! -e '$work/clients3'"
+  if (( EUID != 0 )); then  # root reads unreadable files, so this runs on CI, not as root
+    cp -R "$ext" "$work/unreadable"; print x > "$work/unreadable/zz_extra"; chmod 000 "$work/unreadable/zz_extra"
+    check "filing: failed copy stops" 1 env PSA_CLIENTS_DIR="$work/clients4" zsh "$repo/analyse/analyse.sh" "$work/unreadable"
+    check "filing: failed copy leaves no partial extract" 0 test -z "$(ls -A "$work/clients4/test/m1/extracts" 2>/dev/null)"
+    chmod 644 "$work/unreadable/zz_extra"
+  fi
   check "clients: --out leaves latest alone" 0 sh -c "PSA_CLIENTS_DIR='$work/clients2' zsh '$repo/analyse/analyse.sh' '$ext' --out '$work/ana_noLatest' > /dev/null 2>&1 && test -f '$work/ana_noLatest/photos_pivot.xlsx' && test ! -e '$work/clients2'"
   # Extracts made by another version are refused, not converted
   cp -R "$ext" "$work/oldschema"

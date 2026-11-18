@@ -5,8 +5,11 @@
 #   ./psa analyse <extract> [--out <folder>] [--replace]
 #                 [--path-from <prefix> --path-to <prefix>]
 #
-#   <extract>     received extract folder (manifest.json, catalog.lrcat, files.csv)
-#   --out         output folder; default, filed by the extract's client and machine:
+#   <extract>     received extract folder (manifest.json, catalog.lrcat, files.csv),
+#                 e.g. a download. Without --out it is filed first: copied to
+#                   $PSA_CLIENTS_DIR/<client>/<machine>/extracts/<extract ID>/
+#                 verified there, and analysed from there; the original is left as is
+#   --out         output folder, and no filing; default, by client and machine:
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/analysis/<extract ID>/
 #                 with photos_pivot.xlsx also copied to
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/latest/
@@ -24,7 +27,8 @@
 # temporary folder (an APFS clone where possible), because opening a
 # Lightroom catalog makes SQLite create side files next to it. The temporary
 # folder is removed when analyse.sh ends. Output: analysis.duckdb, join_check.csv,
-# photos_pivot.xlsx, reports/*.csv. Nothing is deleted.
+# photos_pivot.xlsx, reports/*.csv. Nothing is deleted or overwritten outside
+# the output folder; an interrupted filing copy is removed.
 
 set -euo pipefail
 
@@ -87,11 +91,41 @@ if [[ "$extracted" != "$current" ]]; then
   print -u2 "analyse: warning: extract made with commit ${extracted:0:7}, analysis runs on ${current:0:7}"
 fi
 
+# Temporary paths of this script, removed on exit, and also on Ctrl-C, broken
+# pipe or termination, which would otherwise skip the EXIT trap
+cleanup=()
+on_exit() { (( ${#cleanup} )) && rm -rf -- "${cleanup[@]}"; return 0; }
+trap on_exit EXIT
+trap 'on_exit; exit 130' INT
+trap 'on_exit; exit 141' PIPE
+trap 'on_exit; exit 143' TERM HUP
+
 default_out=0
 if [[ -z "$out" ]]; then
   default_out=1
   clients="${PSA_CLIENTS_DIR:-$HOME/photo-analysis/clients}"
+  clients="${clients:A}"
   out="$clients/$client/$machine/analysis/$extract_id"
+
+  # File the extract in its client and machine folder, unless it is there already
+  filed="$clients/$client/$machine/extracts/$extract_id"
+  if [[ "$extract_dir" != "$filed" ]]; then
+    [[ "$extract_dir/" == "$clients/"* ]] \
+      && die "extract is inside $clients but not at its own place $filed; move it there or analyse it with --out"
+    [[ -e "$filed" ]] \
+      && die "extract $extract_id is already filed at $filed; analyse that one: ./psa analyse '$filed'"
+    print "analyse: filing a copy at $filed"
+    mkdir -p "${filed:h}" || die "cannot create ${filed:h}"
+    part="$filed.part.$$"; cleanup+=("$part")
+    { cp -cRp "$extract_dir" "$part" 2> /dev/null || { rm -rf -- "$part"; cp -Rp "$extract_dir" "$part"; } } \
+      || die "cannot copy the extract to $filed"
+    python3 -I "$repo/analyse/verify.py" "$part" > /dev/null || die "the filed copy does not verify; nothing filed"
+    mv "$part" "$filed" || die "cannot move the copy to $filed"
+    cleanup=("${(@)cleanup:#$part}")
+    print "analyse: filed; the original $extract_dir can be removed"
+    extract_dir="$filed"
+    print "analyse: analysing the filed copy $extract_dir"
+  fi
 fi
 out="${out:A}"
 
@@ -106,12 +140,7 @@ cd "$out"
 
 # Working copy of the catalog, so nothing is written next to the original
 work=$(mktemp -d "${TMPDIR:-/tmp}/psa-catalog.XXXXXX") || die "cannot create a temporary folder"
-# Removed on exit, and also on Ctrl-C, broken pipe or termination, which
-# would otherwise skip the EXIT trap and leave a catalog copy behind
-trap 'rm -rf "$work"' EXIT
-trap 'rm -rf "$work"; exit 130' INT
-trap 'rm -rf "$work"; exit 141' PIPE
-trap 'rm -rf "$work"; exit 143' TERM HUP
+cleanup+=("$work")
 cp -c "$extract_dir/catalog.lrcat" "$work/catalog.lrcat" 2> /dev/null \
   || cp "$extract_dir/catalog.lrcat" "$work/catalog.lrcat" \
   || die "cannot copy the catalog to $work"
