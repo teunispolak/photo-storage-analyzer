@@ -31,8 +31,8 @@
 # temporary folder (an APFS clone where possible), because opening a
 # Lightroom catalog makes SQLite create side files next to it. The temporary
 # folder is removed when analyse.sh ends. Output: analysis.duckdb, join_check.csv,
-# photos_pivot.xlsx, reports/*.csv. Nothing is overwritten outside the output
-# folder. Removed: an extract from the inbox once its filed copy verifies, and
+# photos_pivot.xlsx, reports/*.csv, built in <out>.part.<pid> and moved into
+# <out> only on success. Nothing is overwritten outside the output folder. Removed: an extract from the inbox once its filed copy verifies, and
 # an interrupted filing copy.
 
 set -euo pipefail
@@ -147,8 +147,13 @@ out="${out:A}"
 if [[ -e "$out" && $replace -eq 0 ]]; then
   die "output folder exists: $out (use --replace to overwrite its generated files)"
 fi
-mkdir -p "$out/reports"
-cd "$out"
+# Build in a folder next to the output folder; the generated files move into
+# place only when everything succeeded, so a failed analysis leaves the output
+# folder as it was (absent, or the previous analysis)
+mkdir -p "${out:h}" || die "cannot create ${out:h}"
+build="$out.part.$$"; cleanup+=("$build")
+mkdir -p "$build/reports" || die "cannot create $build"
+cd "$build"
 
 # Working copy of the catalog, so nothing is written next to the original
 work=$(mktemp -d "${TMPDIR:-/tmp}/psa-catalog.XXXXXX") || die "cannot create a temporary folder"
@@ -172,16 +177,27 @@ db analysis.duckdb $vars -c ".read $repo/analyse/10_load.sql" -c ".read $repo/an
 
 # Pivot-ready flat file
 db analysis.duckdb -c ".read $repo/analyse/30_pivot.sql" > /dev/null || die "pivot file failed"
-latest=""
-if (( default_out )); then
-  latest="${clients:A}/$client/$machine/latest"
-  mkdir -p "$latest" && cp photos_pivot.xlsx "$latest/photos_pivot.xlsx" || die "copy to $latest failed"
-fi
 
 # 4. Reports
 for r in "$repo"/analyse/reports/*.sql; do
   db analysis.duckdb -c ".read $r" > /dev/null || die "report failed: ${r:t}"
 done
+
+# All done: move the generated files into the output folder. A stale DuckDB
+# write-ahead log of an earlier, interrupted run would be applied to the new
+# database, so it goes too.
+mkdir -p "$out/reports" || die "cannot create $out"
+rm -f -- "$out/analysis.duckdb.wal"
+for f in analysis.duckdb join_check.csv photos_pivot.xlsx reports/*.csv; do
+  mv -f -- "$f" "$out/$f" || die "cannot move $f into $out"
+done
+cd "$out"
+
+latest=""
+if (( default_out )); then
+  latest="${clients:A}/$client/$machine/latest"
+  mkdir -p "$latest" && cp photos_pivot.xlsx "$latest/photos_pivot.xlsx" || die "copy to $latest failed"
+fi
 
 # 5. Summary
 print

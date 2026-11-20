@@ -243,6 +243,25 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
     check "catalog columns: load fails ${c%.lrcat}" 1 load_with "$variants/$c" "$variants/${c%.lrcat}"
   done
 
+  # A failed analysis leaves the output folder as it was: an extract whose catalog lacks a column
+  cp -R "$ext" "$work/badcat"; cp "$variants/without-AgLibraryFile.baseName.lrcat" "$work/badcat/catalog.lrcat"
+  $py -I -c "
+import hashlib, json, sys
+d = sys.argv[1]; p = d + '/manifest.json'; m = json.load(open(p))
+m['catalog']['sha256'] = hashlib.sha256(open(d + '/catalog.lrcat', 'rb').read()).hexdigest()
+json.dump(m, open(p, 'w'), indent=2)" "$work/badcat"
+  check "failed analysis: stops" 1 $anash "$work/badcat" --out "$work/ana_fail"
+  check "failed analysis: no output folder" 0 test ! -e "$work/ana_fail"
+  check "failed analysis: no build folder left" 0 test -z "$(print -l "$work"/ana_fail.part.*(N))"
+  cp -R "$ana" "$work/ana_prev"; prevsum=$(cd "$work/ana_prev" && ls -lR | cksum)
+  check "failed analysis with --replace: stops" 1 $anash "$work/badcat" --out "$work/ana_prev" --replace
+  check "failed analysis with --replace: previous analysis unchanged" 0 test "$(cd "$work/ana_prev" && ls -lR | cksum)" = "$prevsum"
+  check "failed analysis with --replace: no build folder left" 0 test -z "$(print -l "$work"/ana_prev.part.*(N))"
+  print -n junk > "$work/ana_prev/analysis.duckdb.wal"
+  check "replace: a stale write-ahead log is removed, analysis succeeds" 0 $anash "$ext" --out "$work/ana_prev" --replace
+  check "replace: no write-ahead log left" 0 test ! -e "$work/ana_prev/analysis.duckdb.wal"
+  check "replace: database readable" 0 test "$(env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$work/ana_prev/analysis.duckdb" -c "SELECT count(*) > 0 FROM photos")" = true
+
   for r in "$repo"/analyse/reports/*.sql; do
     check "reports: ${r:t:r}.csv written" 0 test -f "$ana/reports/${r:t:r}.csv"
   done
@@ -280,6 +299,41 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "archive: every row has a last edited year" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE last_edited_year IS NULL")" = 0
 
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
+
+  # Names that need quoting in files.csv: carriage return (Icon\r), newline, comma, quote
+  oddnames="['Icon\r', 'a,b.jpg', 'say \"cheese\".jpg', 'two\nlines.jpg', 'end\r\n.jpg']"
+  check "odd names: extract" 0 $extract --scan-root "$d/vol/Odd" --catalog "$d/lr/Test.lrcat" --out "$work/out_odd"
+  oext=$(oneext "$work/out_odd")
+  check "odd names: files.csv has CRLF line endings" 0 $py -I -c "import sys; b = open(sys.argv[1], 'rb').read(); sys.exit(0 if b.count(b'\r\n') >= 6 and b.endswith(b'\r\n') else 1)" "$oext/files.csv"
+  check "odd names: files.csv reads back with the names unchanged" 0 $py -I -c "
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1], newline='', encoding='utf-8')))
+sys.exit(0 if sorted(r['name'] for r in rows) == sorted($oddnames) and all(len(r) == 14 for r in rows) else 1)" "$oext/files.csv"
+  check "odd names: verify" 0 $py -I "$repo/analyse/verify.py" "$oext"
+  check "odd names: analysis" 0 $anash "$oext" --out "$work/ana_odd"
+  check "odd names: all five in the pivot, unchanged" 0 test "$(dq "$work/ana_odd/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE name IN ('Icon' || chr(13), 'a,b.jpg', 'say \"cheese\".jpg', 'two' || chr(10) || 'lines.jpg', 'end' || chr(13) || chr(10) || '.jpg')")" = 5
+  check "odd names: Icon\\r is a system file" 0 test "$(dq "$work/ana_odd/analysis.duckdb" -c "SELECT type_group FROM photos_pivot WHERE name = 'Icon' || chr(13)")" = system
+  # An extract written the way Python 3.9 did: Icon\r unquoted, \n line endings
+  cp -R "$oext" "$work/odd_split"
+  $py -I -c "
+import csv, hashlib, io, json, sys
+d = sys.argv[1]
+rows = list(csv.reader(open(d + '/files.csv', newline='', encoding='utf-8')))
+b = io.StringIO(); csv.writer(b, lineterminator='\n').writerows(rows)
+t = b.getvalue().replace('\"Icon\r\"', 'Icon\r')
+open(d + '/files.csv', 'w', encoding='utf-8', newline='').write(t)
+m = json.load(open(d + '/manifest.json')); m['files']['sha256'] = hashlib.sha256(t.encode()).hexdigest()
+json.dump(m, open(d + '/manifest.json', 'w'), indent=2)" "$work/odd_split"
+  check "odd names: verify refuses a split files.csv" 1 $py -I "$repo/analyse/verify.py" "$work/odd_split"
+  cp "$work/last.out" "$work/odd_split.out"
+  check "odd names: says it does not read back" 0 grep -q 'does not read back' "$work/odd_split.out"
+  check "odd names: the extract's own read-back check refuses it" 0 $py -I -c "
+import sys; sys.path.insert(0, sys.argv[1]); import extract
+p = extract.csv_problem(__import__('pathlib').Path(sys.argv[2]), extract.CSV_COLUMNS, 5)
+sys.exit(0 if p and 'fields' in p else 1)" "$repo/extract" "$work/odd_split/files.csv"
+  check "odd names: and accepts the correct one" 0 $py -I -c "
+import sys; sys.path.insert(0, sys.argv[1]); import extract
+sys.exit(0 if extract.csv_problem(__import__('pathlib').Path(sys.argv[2]), extract.CSV_COLUMNS, 5) is None else 1)" "$repo/extract" "$oext/files.csv"
 
   # Multiple scan roots: a second tree, Extra, with its own catalog root (Multi.lrcat, from make_fixture.py)
   check "multi: nested scan roots refused" 1 $extract --scan-root "$d/vol/Photos" --scan-root "$d/vol/Photos/2014" --catalog "$d/lr/Multi.lrcat" --out "$work/out_nested"

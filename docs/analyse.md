@@ -58,7 +58,7 @@ Client and machine come from the extract's manifest; the extract ID starts with 
 | `--replace` | overwrite the generated files in an existing output folder |
 | `--path-from <prefix> --path-to <prefix>` | replace a catalog path prefix, for a volume mounted under another name than the catalog expects |
 
-The extract is only read, never changed. The catalog is read from a working copy in a temporary folder (an APFS clone where possible, which takes no extra space on the same disk); it is removed when the analysis ends, also when it is interrupted.
+The extract is only read, never changed. The catalog is read from a working copy in a temporary folder (an APFS clone where possible, which takes no extra space on the same disk); it is removed when the analysis ends, also when it is interrupted. The analysis is built in a folder next to the output folder and moved into place only when it succeeds: a failed analysis leaves the output folder as it was, absent or with the previous analysis.
 
 ## Output
 
@@ -98,9 +98,21 @@ The scan roots are the scope: every row in the `photos` table, the pivot file an
 
 `photos_pivot.xlsx` has one row per file under the scan root, found in the filesystem, the catalog or both (`source`). Its columns and their meaning are listed in [`analyse/pivot_columns.csv`](../analyse/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.
 
-Keep your pivots in a separate workbook per machine, so a new analysis only needs a refresh. Set it up once per machine, in Excel for Microsoft 365 for Mac:
+Keep your pivots in a separate workbook per machine, `~/photo-analysis/clients/<client>/<machine>/pivots.xlsx`, so a new analysis only needs a refresh. Excel for Microsoft 365 for Mac.
 
-1. Create a new workbook `~/photo-analysis/clients/<client>/<machine>/pivots.xlsx`, or copy another machine's workbook there and change its source in step 2 (Data > Get Data > Data Source Settings > Change Source).
+For a machine that has no workbook yet, take one of the two routes below, not both. Copying is the usual one; a copy keeps all your pivots.
+
+**Copy another machine's workbook**
+
+1. Copy `pivots.xlsx` from another machine's folder to `~/photo-analysis/clients/<client>/<machine>/`, and open the copy.
+2. Data > Get Data > Data Source Settings. Select the source, which is the other machine's `latest/photos_pivot.xlsx`, click Change Source, and choose `~/photo-analysis/clients/<client>/<machine>/latest/photos_pivot.xlsx`. OK, then Close.
+3. Data > Refresh All. The table and the pivots now show this machine's data.
+
+Do not use Get Data > Excel workbook in a copy: that adds a second query and table (`photos (2)`), which the pivots do not use. If that happened: Data > Queries & Connections, right-click `photos (2)` > Delete, delete the sheet that holds its table, and continue with step 2.
+
+**New workbook**
+
+1. Create a new workbook `~/photo-analysis/clients/<client>/<machine>/pivots.xlsx`.
 2. Data > Get Data (Power Query) > Excel workbook, and choose `~/photo-analysis/clients/<client>/<machine>/latest/photos_pivot.xlsx`.
 3. Select the sheet `photos` and load it to a table on a new sheet. Do not load it to the Data Model: Excel for Mac cannot refresh that.
 4. Data > Get Data (Power Query) > Launch Power Query Editor, select the query `photos`, and under Applied Steps delete `Changed column type` (right-click > Delete). Then Home > Close & Load. Excel adds that step automatically and it names every column; when a column is later removed or renamed, the refresh stops with an error. The pivot file already stores numbers as numbers, so the step is not needed.
@@ -108,7 +120,7 @@ Keep your pivots in a separate workbook per machine, so a new analysis only need
 
 After each `./psa analyse` with the default output, Data > Refresh All updates the table and the pivots.
 
-If a refresh stops with `The column '…' of the table wasn't found`, the workbook still has the `Changed column type` step: delete it as in step 4, then refresh again.
+If a refresh stops with `The column '…' of the table wasn't found`, the workbook still has the `Changed column type` step: delete it as in step 4 of New workbook, then refresh again.
 
 Reconciliation, the same split as `reports/reconciliation.csv`:
 - Rows: `source`, `catalog_role`

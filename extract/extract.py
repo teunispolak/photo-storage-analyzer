@@ -290,6 +290,24 @@ def copy_catalog(src: Path, extract_dir: Path) -> dict:
 
 # ---------------------------------------------------------------- scan
 
+def csv_problem(path: Path, columns: List[str], rows: int) -> Optional[str]:
+    """None if path reads back as the header plus rows rows of len(columns)
+    fields; otherwise what is wrong. A field with an unquoted line break
+    splits its row, which this catches."""
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        if next(reader, None) != columns:
+            return "header differs from the expected columns"
+        n = 0
+        for row in reader:
+            if len(row) != len(columns):
+                return f"line {reader.line_num}: {len(row)} fields, expected {len(columns)}"
+            n += 1
+    if n != rows:
+        return f"{n} rows, expected {rows}"
+    return None
+
+
 def scan(scan_roots: List[Path], extract_dir: Path) -> dict:
     dest = extract_dir / "files.csv"
     part = extract_dir / "files.csv.part"
@@ -300,7 +318,9 @@ def scan(scan_roots: List[Path], extract_dir: Path) -> dict:
     per_root = {}
 
     with open(part, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f, lineterminator="\n")
+        # \r\n (RFC 4180): with \n, Python 3.9 leaves a field holding a carriage
+        # return unquoted (macOS folder icons are named "Icon\r"), which splits its row
+        w = csv.writer(f, lineterminator="\r\n")
         w.writerow(CSV_COLUMNS)
         for scan_root in scan_roots:
             root_str = os.path.abspath(scan_root)
@@ -366,6 +386,10 @@ def scan(scan_roots: List[Path], extract_dir: Path) -> dict:
         f.flush()
         os.fsync(f.fileno())
 
+    # Read it back as the analysis will; a mismatch fails the extract (no manifest)
+    problem = csv_problem(part, CSV_COLUMNS, files)
+    if problem:
+        raise RuntimeError(f"files.csv does not read back: {problem}")
     os.replace(part, dest)
     elapsed = time.time() - t0
     log.info("Scan done: %d files, %d folders, %.2f TB, %d errors, %.0f s",

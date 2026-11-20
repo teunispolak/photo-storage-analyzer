@@ -103,6 +103,13 @@ def main() -> int:
     (extra / "2020").mkdir(parents=True)
     (extra / "2020" / "X1.CR2").write_bytes(b"x1")
     (extra / "2020" / "X2.CR2").write_bytes(b"x22")
+    # Third tree, Odd, not catalogued: names that need quoting in files.csv.
+    # "Icon\r" is the macOS custom folder icon file; Python 3.9 split its row
+    odd = work / "vol" / "Odd" / "2019"
+    odd.mkdir(parents=True)
+    for name in ("Icon\r", "a,b.jpg", 'say "cheese".jpg', "two\nlines.jpg", "end\r\n.jpg"):
+        (odd / name).write_bytes(b"o")
+
     multi = work / "lr" / "Multi.lrcat"
     shutil.copyfile(work / "lr" / "Test.lrcat", multi)
     con = sqlite3.connect(multi)

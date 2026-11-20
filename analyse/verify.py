@@ -6,10 +6,12 @@ Usage: python3 verify.py <extract_dir>
 Exit 0 if complete, of the current schema, and checksums match; 1 otherwise.
 """
 
+import csv
 import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import List, Optional
 
 CHUNK = 8 * 1024 * 1024
 # Manifest schema the analysis reads; extract/extract.py writes the same number
@@ -22,6 +24,24 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: f.read(CHUNK), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def csv_problem(path: Path, columns: List[str], rows: int) -> Optional[str]:
+    """None if path reads back as the header plus rows rows of len(columns)
+    fields; otherwise what is wrong. A field with an unquoted line break
+    splits its row, which this catches."""
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        if next(reader, None) != columns:
+            return "header differs from the expected columns"
+        n = 0
+        for row in reader:
+            if len(row) != len(columns):
+                return f"line {reader.line_num}: {len(row)} fields, expected {len(columns)}"
+            n += 1
+    if n != rows:
+        return f"{n} rows, expected {rows}"
+    return None
 
 
 def main() -> int:
@@ -57,8 +77,14 @@ def main() -> int:
         if actual != entry["sha256"]:
             print(f"FAIL {label}: {p.name} checksum mismatch")
             ok = False
-        else:
-            print(f"ok   {label}: {p.name}")
+            continue
+        if label == "files":
+            problem = csv_problem(p, entry["columns"], entry["rows"])
+            if problem:
+                print(f"FAIL {label}: {p.name} does not read back ({problem}); extract again with the current version")
+                ok = False
+                continue
+        print(f"ok   {label}: {p.name}")
 
     if ok:
         f = m["files"]
