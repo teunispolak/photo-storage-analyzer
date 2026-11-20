@@ -71,7 +71,10 @@ SELECT
              WHERE d.folder_path = q.folder_path AND d.stem = q.stem AND d.ext <> q.ext)
          THEN 'dng original?' END AS hint,
     CASE WHEN q.on_disk AND NOT q.in_catalog THEN m.catalog_folder END AS catalog_folder,
-    q.scan_root
+    q.scan_root,
+    year(q.last_modified) AS last_modified_year,
+    year(q.touch_time) AS last_touched_year,
+    year(q.last_edited) AS last_edited_year
 FROM q LEFT JOIN moved m ON m.lname = lower(q.name);
 
 COPY (SELECT * FROM photos_pivot ORDER BY folder_path, name)

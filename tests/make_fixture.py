@@ -49,6 +49,7 @@ def main() -> int:
 
     # On disk (9 files)
     (base / "2014" / "Trip" / "IMG_0001.CR2").write_bytes(b"x" * 5000)   # raw, catalogued
+    os.utime(base / "2014" / "Trip" / "IMG_0001.CR2", (1325376000, 1325376000))  # modified 2012-01-01
     (base / "2014" / "Trip" / "IMG_0001.xmp").write_text("xmp")          # its sidecar
     (base / "2015" / "IMG_0100.NEF").write_bytes(b"n" * 4000)            # RAW+JPEG pair
     (base / "2015" / "IMG_0100.JPG").write_bytes(b"j" * 900)             # JPEG of the pair
@@ -68,25 +69,29 @@ def main() -> int:
         CREATE TABLE AgLibraryRootFolder (id_local INTEGER PRIMARY KEY, absolutePath NOT NULL DEFAULT '', name);
         CREATE TABLE AgLibraryFolder (id_local INTEGER PRIMARY KEY, pathFromRoot NOT NULL DEFAULT '', rootFolder INTEGER);
         CREATE TABLE AgLibraryFile (id_local INTEGER PRIMARY KEY, baseName NOT NULL DEFAULT '',
-                                    extension NOT NULL DEFAULT '', folder INTEGER, sidecarExtensions);
+                                    extension NOT NULL DEFAULT '', folder INTEGER, sidecarExtensions,
+                                    modTime);
         CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile INTEGER, masterImage INTEGER,
-                                   captureTime, fileFormat, pick NOT NULL DEFAULT 0, rating);
+                                   captureTime, fileFormat, pick NOT NULL DEFAULT 0, rating,
+                                   touchTime NOT NULL DEFAULT 0);
     """)
     con.execute("INSERT INTO AgLibraryRootFolder VALUES (1, ?, 'Photos')", (str(base) + "/",))
     con.executemany("INSERT INTO AgLibraryFolder VALUES (?, ?, 1)",
                     [(10, "2014/Trip/"), (11, "2015/"), (12, "2016/"), (13, "2023/")])
-    con.executemany("INSERT INTO AgLibraryFile VALUES (?, ?, ?, ?, ?)", [
-        (100, "IMG_0001", "CR2", 10, "xmp"),                          # raw + xmp sidecar
-        (101, "IMG_0100", "NEF", 11, "JPG"),                          # RAW+JPEG pair
-        (102, "GONE", "DNG", 12, None),                               # missing from disk
-        (103, unicodedata.normalize("NFD", "Café"), "jpg", 13, None),  # NFD name, case differs
+    # modTime and touchTime: seconds since 2001-01-01, as Lightroom stores them;
+    # 486432000 = 2016-06-01, 668088000.5 = 2022-03-04 12:00:00.5
+    con.executemany("INSERT INTO AgLibraryFile VALUES (?, ?, ?, ?, ?, ?)", [
+        (100, "IMG_0001", "CR2", 10, "xmp", 400000000.0),             # raw + xmp sidecar
+        (101, "IMG_0100", "NEF", 11, "JPG", 450000000.0),             # RAW+JPEG pair
+        (102, "GONE", "DNG", 12, None, 486432000.0),                  # missing from disk
+        (103, unicodedata.normalize("NFD", "Café"), "jpg", 13, None, None),  # NFD name, case differs
     ])
-    con.executemany("INSERT INTO Adobe_images VALUES (?, ?, ?, ?, ?, ?, ?)", [
-        (1000, 100, None, "2014-07-01T10:00:00.25", "RAW", 1, 4),
-        (1001, 100, 1000, "2014-07-01T10:00:00.25", "RAW", 0, None),  # virtual copy
-        (1002, 101, None, "2015-03-02T08:00:00", "RAW", 0, 3),
-        (1003, 102, None, "2016-01-01T00:00:00", "RAW", -1, None),
-        (1004, 103, None, None, "JPG", 0, None),                      # no capture time
+    con.executemany("INSERT INTO Adobe_images VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+        (1000, 100, None, "2014-07-01T10:00:00.25", "RAW", 1, 4, 668088000.5),  # edited in 2022
+        (1001, 100, 1000, "2014-07-01T10:00:00.25", "RAW", 0, None, 0),  # virtual copy
+        (1002, 101, None, "2015-03-02T08:00:00", "RAW", 0, 3, 0),        # never touched
+        (1003, 102, None, "2016-01-01T00:00:00", "RAW", -1, None, 0),
+        (1004, 103, None, None, "JPG", 0, None, 0),                      # no capture time
     ])
     con.commit()
     con.close()
@@ -103,8 +108,8 @@ def main() -> int:
     con = sqlite3.connect(multi)
     con.execute("INSERT INTO AgLibraryRootFolder VALUES (2, ?, 'Extra')", (str(extra) + "/",))
     con.execute("INSERT INTO AgLibraryFolder VALUES (20, '2020/', 2)")
-    con.execute("INSERT INTO AgLibraryFile VALUES (200, 'X1', 'CR2', 20, NULL)")
-    con.execute("INSERT INTO Adobe_images VALUES (2000, 200, NULL, '2020-05-05T05:05:05', 'RAW', 0, NULL)")
+    con.execute("INSERT INTO AgLibraryFile VALUES (200, 'X1', 'CR2', 20, NULL, NULL)")
+    con.execute("INSERT INTO Adobe_images VALUES (2000, 200, NULL, '2020-05-05T05:05:05', 'RAW', 0, NULL, 0)")
     con.commit()
     con.close()
     remove_side_files(multi)

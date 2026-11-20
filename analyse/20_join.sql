@@ -70,9 +70,12 @@ SELECT
     m.id AS lr_image_id,
     m.file_format AS lr_file_format,
     try_cast(substr(m.capture_time_raw, 1, 19) AS TIMESTAMP) AS capture_time,
-    m.pick, m.rating
+    m.pick, m.rating,
+    m.touch_time,
+    f.mod_time AS catalog_mod_time   -- of the photo file; also used for its attached files
 FROM lr_entries e
 LEFT JOIN lr_photo m ON m.file_id = e.file_id
+LEFT JOIN lr_file f  ON f.id = e.file_id
 LEFT JOIN scan_roots r ON starts_with(lower(e.path), r.root_lc)
 QUALIFY row_number() OVER (PARTITION BY lower(e.path)
                            ORDER BY (e.catalog_role = 'photo') DESC, e.file_id) = 1;
@@ -98,7 +101,8 @@ joined AS (
         c.catalog_role,
         d.path IS NOT NULL AND c.path IS NOT NULL AND d.path <> c.path AS case_only_match,
         c.nfc_changed, c.prefix_mapped,
-        c.lr_image_id, c.lr_file_format, c.capture_time, c.pick, c.rating
+        c.lr_image_id, c.lr_file_format, c.capture_time, c.pick, c.rating,
+        c.touch_time, c.catalog_mod_time
     FROM disk d
     FULL OUTER JOIN (SELECT * FROM catalog_entries WHERE in_scope) c ON c.match_key = d.match_key
 )
@@ -115,7 +119,13 @@ SELECT
     year(coalesce(j.capture_time, j.mtime)) AS capture_year,
     CASE WHEN j.capture_time IS NOT NULL THEN 'catalog'
          WHEN j.mtime IS NOT NULL THEN 'mtime'
-         ELSE 'none' END AS date_source
+         ELSE 'none' END AS date_source,
+    -- Last modification: on disk if there, else as the catalog recorded it
+    coalesce(j.mtime, j.catalog_mod_time) AS last_modified,
+    -- Last edit: the later of last modification and last Lightroom edit
+    CASE WHEN coalesce(j.mtime, j.catalog_mod_time) IS NULL THEN j.touch_time
+         WHEN j.touch_time IS NULL THEN coalesce(j.mtime, j.catalog_mod_time)
+         ELSE greatest(coalesce(j.mtime, j.catalog_mod_time), j.touch_time) END AS last_edited
 FROM joined j
 LEFT JOIN types t ON t.ext = j.ext;
 
