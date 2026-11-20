@@ -237,7 +237,8 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "catalog columns: sample catalog still has no SQLite side files" 0 test -z "$(ls "$d/lr" | grep -E 'lrcat-(wal|shm)')"
   check "catalog columns: minimal catalog loads" 0 load_with "$variants/minimal.lrcat" "$variants/minimal"
   check "catalog columns: minimal catalog gives the same join" 0 diff "$ana/join_check.csv" "$variants/minimal/join_check.csv"
-  check "catalog columns: one variant per required column" 0 test ${#cols} -eq 17
+  nreq=$($py -I -c "import importlib.util as u, sys; s = u.spec_from_file_location('c', sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m); print(sum(len(c) for c in m.REQUIRED.values()))" "$repo/extract/check_catalog.py")
+  check "catalog columns: one variant per required column ($nreq)" 0 test ${#cols} -eq $nreq -a $nreq -ge 19
   for c in $cols; do
     check "catalog columns: load fails ${c%.lrcat}" 1 load_with "$variants/$c" "$variants/${c%.lrcat}"
   done
@@ -266,6 +267,17 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   check "scope: mapped analysis has only scanned files as rows" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) || '/' || count(*) FILTER (WHERE source = 'catalog only') FROM photos_pivot")" = "9/0"
   check "pivot: scan_root column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') FROM photos_pivot")" = "$d/vol/Photos"
   check "pivot: every row has the scan root" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE scan_root IS NULL")" = 0
+
+  # Years for archive candidates: last modified (disk, else catalog), last Lightroom edit, the later of the two
+  yy=$(date +%Y)
+  ay() { dq "$ana/analysis.duckdb" -c "SELECT concat_ws('|', coalesce(last_modified_year::VARCHAR, '-'), coalesce(last_touched_year::VARCHAR, '-'), coalesce(last_edited_year::VARCHAR, '-')) FROM photos_pivot WHERE name = '$1'"; }
+  check "archive: catalog seconds converted exactly" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT strftime(last_modified, '%Y-%m-%d %H:%M:%S') || '/' || (SELECT strftime(touch_time, '%Y-%m-%d %H:%M:%S.%g') FROM photos WHERE name = 'IMG_0001.CR2') FROM photos WHERE name = 'GONE.DNG'")" = "2016-06-01 00:00:00/2022-03-04 12:00:00.500"
+  check "archive: on disk, touched later than modified: edited is the touch year" 0 test "$(ay IMG_0001.CR2)" = "2012|2022|2022"
+  check "archive: sidecar on disk carries the photo's touch year" 0 test "$(ay IMG_0001.xmp)" = "$yy|2022|$yy"
+  check "archive: catalog only: catalog's modification year, never touched" 0 test "$(ay GONE.DNG)" = "2016|-|2016"
+  check "archive: on disk, never touched: edited is the modification year" 0 test "$(ay IMG_0100.NEF)" = "$yy|-|$yy"
+  check "archive: not catalogued: modification year only" 0 test "$(ay flagged.jpg)" = "$yy|-|$yy"
+  check "archive: every row has a last edited year" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE last_edited_year IS NULL")" = 0
 
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
 

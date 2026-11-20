@@ -74,12 +74,20 @@ SELECT cast(id_local AS BIGINT) AS id,
        coalesce(pathFromRoot, '') AS path_from_root
 FROM lr.AgLibraryFolder;
 
+-- Lightroom stores modTime and touchTime as seconds since 2001-01-01 (UTC);
+-- 0 or empty means not set
+CREATE OR REPLACE MACRO lr_time(s) AS
+    CASE WHEN try_cast(s AS DOUBLE) > 0
+         THEN TIMESTAMP '2001-01-01 00:00:00'
+              + to_microseconds(cast(round(try_cast(s AS DOUBLE) * 1e6) AS BIGINT)) END;
+
 CREATE OR REPLACE TABLE lr_file AS
 SELECT cast(id_local AS BIGINT) AS id,
        cast(folder AS BIGINT) AS folder_id,
        baseName AS base_name,
        coalesce(extension, '') AS extension,
-       nullif(sidecarExtensions, '') AS sidecar_extensions
+       nullif(sidecarExtensions, '') AS sidecar_extensions,
+       lr_time(modTime) AS mod_time   -- file modification date as Lightroom recorded it
 FROM lr.AgLibraryFile;
 
 CREATE OR REPLACE TABLE lr_image AS
@@ -89,7 +97,8 @@ SELECT cast(id_local AS BIGINT) AS id,
        nullif(captureTime, '') AS capture_time_raw,
        fileFormat AS file_format,
        try_cast(pick AS DOUBLE) AS pick,
-       try_cast(rating AS DOUBLE) AS rating
+       try_cast(rating AS DOUBLE) AS rating,
+       lr_time(touchTime) AS touch_time  -- last edit in Lightroom, metadata included
 FROM lr.Adobe_images;
 
 DETACH lr;

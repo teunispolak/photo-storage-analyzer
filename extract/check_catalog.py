@@ -30,8 +30,9 @@ import settings as settings_file  # noqa: E402
 REQUIRED = {
     "AgLibraryRootFolder": ["id_local", "absolutePath"],
     "AgLibraryFolder": ["id_local", "rootFolder", "pathFromRoot"],
-    "AgLibraryFile": ["id_local", "folder", "baseName", "extension", "sidecarExtensions"],
-    "Adobe_images": ["id_local", "rootFile", "masterImage", "captureTime", "fileFormat", "pick", "rating"],
+    "AgLibraryFile": ["id_local", "folder", "baseName", "extension", "sidecarExtensions", "modTime"],
+    "Adobe_images": ["id_local", "rootFile", "masterImage", "captureTime", "fileFormat", "pick", "rating",
+                     "touchTime"],
 }
 
 TIME_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*"
