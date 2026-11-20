@@ -27,7 +27,7 @@ Each client and each machine at a client has its own folder; machines are analys
 ~/photo-analysis/clients/<client>/<machine>/
   extracts/    received extracts, filed here by ./psa analyse
   analysis/    one analysis per extract
-  latest/      photos_pivot.xlsx of the last analysis, for this machine's workbook
+  latest/      photos_pivot.xlsx and folder_tree.xlsx of the last analysis, for this machine's workbook
   pivots.xlsx  your workbook for this machine
 ```
 
@@ -67,6 +67,7 @@ The extract is only read, never changed. The catalog is read from a working copy
 | `analysis.duckdb` | DuckDB database with the `photos` table, one row per file on disk or in the catalog |
 | `join_check.csv` | counts to check the join |
 | `photos_pivot.xlsx` | flat file for pivot tables, one row per file; with the default output also copied to the machine's `latest/` |
+| `folder_tree.xlsx` | one row per folder at every level, with totals for the whole branch: files, size, newest capture year and newest edit year (system files such as `.DS_Store` left out of the years); files on disk only. Also `reports/folder_tree.csv`, and copied to `latest/` |
 | `reports/*.csv` | one CSV per report, each starting with `extract_id` and `scan_date` |
 
 Times:

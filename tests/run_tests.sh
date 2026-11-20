@@ -303,6 +303,28 @@ json.dump(m, open(p, 'w'), indent=2)" "$work/badcat"
 
   rq() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list -c "$1"; }
 
+  # Folder tree: branch totals; root equals the whole scan; catalog-only entries left out
+  ft() { rq "SELECT $1 FROM read_csv('$2/reports/folder_tree.csv', all_varchar = true) ${3:-}"; }
+  check "folder tree: written as xlsx and report" 0 test -f "$ana/folder_tree.xlsx" -a -f "$ana/reports/folder_tree.csv"
+  check "folder tree: root row is the whole scan (disk files and bytes)" 0 test "$(ft "files || '/' || bytes" "$ana" "WHERE depth = '0'")" = "$(rq "SELECT max(value) FILTER (WHERE metric = 'disk_files') || '/' || max(value) FILTER (WHERE metric = 'disk_bytes') FROM read_csv('$ana/join_check.csv', all_varchar = true)")"
+  check "folder tree: branch = direct + children, for every folder" 0 test "$(rq "
+    WITH t AS (SELECT folder, depth::INT d, bytes::BIGINT b, direct_bytes::BIGINT db FROM read_csv('$ana/reports/folder_tree.csv', all_varchar = true))
+    SELECT count(*) FROM t p WHERE p.b <> p.db + coalesce((SELECT sum(c.b) FROM t c WHERE c.d = p.d + 1
+      AND (p.d = 0 OR starts_with(c.folder, p.folder || '/'))), 0)")" = 0
+  # A tree of its own: old files plus a system file rewritten today
+  tr="$d/vol/Tree"
+  $py -I -c "
+import os, sys
+t = sys.argv[1]
+for rel, size, mtime in (('old/a.jpg', 1000, 1420113600), ('old/.DS_Store', 10, None),  # 2015-01-01, today
+                         ('old/sub/b.jpg', 2000, 1451649600), ('new/c.jpg', 500, None)):  # 2016-01-01, today
+    p = os.path.join(t, rel); os.makedirs(os.path.dirname(p), exist_ok=True)
+    open(p, 'wb').write(b'x' * size)
+    if mtime: os.utime(p, (mtime, mtime))" "$tr"
+  check "folder tree: extract of its own tree" 0 $extract --scan-root "$tr" --catalog "$d/lr/Test.lrcat" --out "$work/out_tree"
+  check "folder tree: its analysis" 0 $anash "$(oneext "$work/out_tree")" --out "$work/ana_tree"
+  check "folder tree: rows, sizes and years; .DS_Store counted in size, not in years" 0 test "$(ft "string_agg(folder || ':' || depth || ':' || files || ':' || bytes || ':' || direct_bytes || ':' || coalesce(max_last_edited_year, '-'), ' ' ORDER BY folder)" "$work/ana_tree")" = "(root):0:4:3510:0:$yy new:1:1:500:500:$yy old:1:3:3010:1010:2016 old/sub:2:1:2000:2000:2016"
+
   # Names that need quoting in files.csv: carriage return (Icon\r), newline, comma, quote
   oddnames="['Icon\r', 'a,b.jpg', 'say \"cheese\".jpg', 'two\nlines.jpg', 'end\r\n.jpg']"
   check "odd names: extract" 0 $extract --scan-root "$d/vol/Odd" --catalog "$d/lr/Test.lrcat" --out "$work/out_odd"
@@ -390,6 +412,7 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
   check "clients: default output for test/m1" 0 $anash_c "$ext"
   cp "$work/last.out" "$work/clients_m1.out"
   check "clients: analysis filed under client/machine/analysis/extract" 0 test -f "$cl_dir/test/m1/analysis/${ext:t}/photos_pivot.xlsx"
+  check "clients: latest per machine holds the folder tree too" 0 test -f "$cl_dir/test/m1/latest/folder_tree.xlsx"
   check "clients: latest per machine holds this extract's pivot file" 0 cmp -s "$cl_dir/test/m1/analysis/${ext:t}/photos_pivot.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
   check "clients: summary names client and machine" 0 grep -q 'client: test, machine: m1' "$work/clients_m1.out"
   cp "$cl_dir/test/m1/latest/photos_pivot.xlsx" "$work/latest_m1.xlsx"

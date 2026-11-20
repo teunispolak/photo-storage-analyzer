@@ -13,7 +13,7 @@
 #                 is then removed from it; one from elsewhere is left as is
 #   --out         output folder, and no filing; default, by client and machine:
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/analysis/<extract ID>/
-#                 with photos_pivot.xlsx also copied to
+#                 with photos_pivot.xlsx and folder_tree.xlsx also copied to
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/latest/
 #                 for that machine's pivot workbook
 #   --replace     overwrite the generated files in an existing output folder
@@ -31,7 +31,7 @@
 # temporary folder (an APFS clone where possible), because opening a
 # Lightroom catalog makes SQLite create side files next to it. The temporary
 # folder is removed when analyse.sh ends. Output: analysis.duckdb, join_check.csv,
-# photos_pivot.xlsx, reports/*.csv, built in <out>.part.<pid> and moved into
+# photos_pivot.xlsx, folder_tree.xlsx, reports/*.csv, built in <out>.part.<pid> and moved into
 # <out> only on success. Nothing is overwritten outside the output folder. Removed: an extract from the inbox once its filed copy verifies, and
 # an interrupted filing copy.
 
@@ -177,6 +177,8 @@ db analysis.duckdb $vars -c ".read $repo/analyse/10_load.sql" -c ".read $repo/an
 
 # Pivot-ready flat file
 db analysis.duckdb -c ".read $repo/analyse/30_pivot.sql" > /dev/null || die "pivot file failed"
+# Folder tree with branch totals (needs the pivot views)
+db analysis.duckdb -c ".read $repo/analyse/40_folders.sql" > /dev/null || die "folder tree failed"
 
 # 4. Reports
 for r in "$repo"/analyse/reports/*.sql; do
@@ -188,7 +190,7 @@ done
 # database, so it goes too.
 mkdir -p "$out/reports" || die "cannot create $out"
 rm -f -- "$out/analysis.duckdb.wal"
-for f in analysis.duckdb join_check.csv photos_pivot.xlsx reports/*.csv; do
+for f in analysis.duckdb join_check.csv photos_pivot.xlsx folder_tree.xlsx reports/*.csv; do
   mv -f -- "$f" "$out/$f" || die "cannot move $f into $out"
 done
 cd "$out"
@@ -196,7 +198,7 @@ cd "$out"
 latest=""
 if (( default_out )); then
   latest="${clients:A}/$client/$machine/latest"
-  mkdir -p "$latest" && cp photos_pivot.xlsx "$latest/photos_pivot.xlsx" || die "copy to $latest failed"
+  mkdir -p "$latest" && cp photos_pivot.xlsx folder_tree.xlsx "$latest/" || die "copy to $latest failed"
 fi
 
 # 5. Summary
@@ -216,5 +218,6 @@ print "analyse: output in $out"
 print "  analysis.duckdb"
 print "  join_check.csv"
 print "  photos_pivot.xlsx"
-if [[ -n "$latest" ]]; then print "  (copied to $latest/photos_pivot.xlsx)"; fi
+print "  folder_tree.xlsx"
+if [[ -n "$latest" ]]; then print "  (both copied to $latest/)"; fi
 for f in reports/*.csv; do print "  $f"; done
