@@ -290,11 +290,14 @@ json.dump(m, open(p, 'w'), indent=2)" "$work/badcat"
   # Years for archive candidates: last modified (disk, else catalog), last Lightroom edit, the later of the two
   yy=$(date +%Y)
   ay() { dq "$ana/analysis.duckdb" -c "SELECT concat_ws('|', coalesce(last_modified_year::VARCHAR, '-'), coalesce(last_touched_year::VARCHAR, '-'), coalesce(last_edited_year::VARCHAR, '-')) FROM photos_pivot WHERE name = '$1'"; }
-  check "archive: catalog seconds converted exactly" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT strftime(last_modified, '%Y-%m-%d %H:%M:%S') || '/' || (SELECT strftime(touch_time, '%Y-%m-%d %H:%M:%S.%g') FROM photos WHERE name = 'IMG_0001.CR2') FROM photos WHERE name = 'GONE.DNG'")" = "2016-06-01 00:00:00/2022-03-04 12:00:00.500"
-  check "archive: on disk, touched later than modified: edited is the touch year" 0 test "$(ay IMG_0001.CR2)" = "2012|2022|2022"
-  check "archive: sidecar on disk carries the photo's touch year" 0 test "$(ay IMG_0001.xmp)" = "$yy|2022|$yy"
+  check "archive: catalog seconds converted exactly" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT strftime(last_modified, '%Y-%m-%d %H:%M:%S') || '/' || (SELECT strftime(touch_time, '%Y-%m-%d %H:%M:%S.%g') FROM lr_image WHERE id = 1000) FROM photos WHERE name = 'GONE.DNG'")" = "2016-06-01 00:00:00/2022-03-04 12:00:00.500"
+  check "archive: develop step after import counts, later than the touch: 2023" 0 test "$(ay IMG_0001.CR2)" = "2012|2023|2023"
+  check "archive: sidecar on disk carries the photo's Lightroom edit year" 0 test "$(ay IMG_0001.xmp)" = "$yy|2023|$yy"
+  check "archive: touched only at import: no Lightroom edit year" 0 test "$(ay IMG_0100.NEF)" = "$yy|-|$yy"
+  check "archive: import moment is the first step, Dutch name, after the session in UTC" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(image_id || '=' || strftime(import_time, '%Y-%m-%d %H:%M'), ' ' ORDER BY image_id) FROM lr_import")" = "1000=2021-01-01 09:05 1002=2021-01-01 09:06 1003=2021-01-01 09:00 1004=2021-01-01 09:00"
+  check "archive: touch within 10 minutes of the import is not an edit" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM lr_edit WHERE image_id = 1002 AND edit_time IS NULL")" = 1
+  check "archive: touch 2022 kept as an edit (after import), develop step 2023 wins" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT strftime(edit_time, '%Y-%m-%d') FROM lr_edit WHERE image_id = 1000")" = 2023-06-01
   check "archive: catalog only: catalog's modification year, never touched" 0 test "$(ay GONE.DNG)" = "2016|-|2016"
-  check "archive: on disk, never touched: edited is the modification year" 0 test "$(ay IMG_0100.NEF)" = "$yy|-|$yy"
   check "archive: not catalogued: modification year only" 0 test "$(ay flagged.jpg)" = "$yy|-|$yy"
   check "archive: every row has a last edited year" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE last_edited_year IS NULL")" = 0
 

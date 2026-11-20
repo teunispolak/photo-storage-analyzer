@@ -74,6 +74,10 @@ def main() -> int:
         CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile INTEGER, masterImage INTEGER,
                                    captureTime, fileFormat, pick NOT NULL DEFAULT 0, rating,
                                    touchTime NOT NULL DEFAULT 0);
+        CREATE TABLE AgLibraryImport (id_local INTEGER PRIMARY KEY, imageCount, importDate, name);
+        CREATE TABLE AgLibraryImportImage (id_local INTEGER PRIMARY KEY, image INTEGER, import INTEGER);
+        CREATE TABLE Adobe_libraryImageDevelopHistoryStep (id_local INTEGER PRIMARY KEY, dateCreated,
+                                   image INTEGER, name);
     """)
     con.execute("INSERT INTO AgLibraryRootFolder VALUES (1, ?, 'Photos')", (str(base) + "/",))
     con.executemany("INSERT INTO AgLibraryFolder VALUES (?, ?, 1)",
@@ -89,9 +93,20 @@ def main() -> int:
     con.executemany("INSERT INTO Adobe_images VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
         (1000, 100, None, "2014-07-01T10:00:00.25", "RAW", 1, 4, 668088000.5),  # edited in 2022
         (1001, 100, 1000, "2014-07-01T10:00:00.25", "RAW", 0, None, 0),  # virtual copy
-        (1002, 101, None, "2015-03-02T08:00:00", "RAW", 0, 3, 0),        # never touched
+        (1002, 101, None, "2015-03-02T08:00:00", "RAW", 0, 3, 631184880.0),  # touched at import only (09:08)
         (1003, 102, None, "2016-01-01T00:00:00", "RAW", -1, None, 0),
         (1004, 103, None, None, "JPG", 0, None, 0),                      # no capture time
+    ])
+    # One import session, 2021-01-01 10:00 local time = 09:00 UTC. Times in
+    # seconds since 2001: 631184700 = 09:05 UTC, 631184760 = 09:06, 631184880 = 09:08,
+    # 707299200 = 2023-06-01 08:00. Step names are localised: a Dutch import step.
+    con.execute("INSERT INTO AgLibraryImport VALUES (1, 4, '2021-01-01T10:00:00+01:00', NULL)")
+    con.executemany("INSERT INTO AgLibraryImportImage VALUES (?, ?, 1)",
+                    [(1, 1000), (2, 1002), (3, 1003), (4, 1004)])
+    con.executemany("INSERT INTO Adobe_libraryImageDevelopHistoryStep VALUES (?, ?, ?, ?)", [
+        (1, 631184700.0, 1000, "Importeren (01-01-2021 10:05:00)"),
+        (2, 707299200.0, 1000, "Clarity"),                            # edited in 2023
+        (3, 631184760.0, 1002, "Importeren (01-01-2021 10:06:00)"),
     ])
     con.commit()
     con.close()
