@@ -67,7 +67,7 @@ The extract is only read, never changed. The catalog is read from a working copy
 | `analysis.duckdb` | DuckDB database with the `photos` table, one row per file on disk or in the catalog |
 | `join_check.csv` | counts to check the join |
 | `photos_pivot.xlsx` | flat file for pivot tables, one row per file; with the default output also copied to the machine's `latest/` |
-| `folder_tree.xlsx` | one row per folder at every level, with totals for the whole branch: files, size, newest capture year and newest edit year (system files such as `.DS_Store` left out of the years); files on disk only. Also `reports/folder_tree.csv`, and copied to `latest/` |
+| `folder_tree.xlsx` | one row per folder at every level, with totals for the whole branch: files, size, newest capture year and newest edit year (system files such as `.DS_Store` left out of the years), and `parent_max_year`, the later of the parent folder's two years; files on disk only. Both own years up to a cut-off and `parent_max_year` after it select the outermost branches, which do not overlap and can be added up. Also `reports/folder_tree.csv`, and copied to `latest/` |
 | `reports/*.csv` | one CSV per report, each starting with `extract_id` and `scan_date` |
 
 Times:

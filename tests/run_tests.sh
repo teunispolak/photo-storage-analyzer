@@ -324,6 +324,8 @@ for rel, size, mtime in (('old/a.jpg', 1000, 1420113600), ('old/.DS_Store', 10, 
   check "folder tree: extract of its own tree" 0 $extract --scan-root "$tr" --catalog "$d/lr/Test.lrcat" --out "$work/out_tree"
   check "folder tree: its analysis" 0 $anash "$(oneext "$work/out_tree")" --out "$work/ana_tree"
   check "folder tree: rows, sizes and years; .DS_Store counted in size, not in years" 0 test "$(ft "string_agg(folder || ':' || depth || ':' || files || ':' || bytes || ':' || direct_bytes || ':' || coalesce(max_last_edited_year, '-'), ' ' ORDER BY folder)" "$work/ana_tree")" = "(root):0:4:3510:0:$yy new:1:1:500:500:$yy old:1:3:3010:1010:2016 old/sub:2:1:2000:2000:2016"
+  check "folder tree: parent's later year per row" 0 test "$(ft "string_agg(folder || ':' || coalesce(parent_max_year, '-'), ' ' ORDER BY folder)" "$work/ana_tree")" = "(root):- new:$yy old:$yy old/sub:2016"
+  check "folder tree: own years up to 2016 and parent's after it: only the outermost branch" 0 test "$(ft "string_agg(folder, ' ')" "$work/ana_tree" "WHERE max_last_edited_year::INT <= 2016 AND max_capture_year::INT <= 2016 AND parent_max_year::INT > 2016")" = old
 
   # Names that need quoting in files.csv: carriage return (Icon\r), newline, comma, quote
   oddnames="['Icon\r', 'a,b.jpg', 'say \"cheese\".jpg', 'two\nlines.jpg', 'end\r\n.jpg']"
