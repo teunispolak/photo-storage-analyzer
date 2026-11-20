@@ -33,6 +33,9 @@ REQUIRED = {
     "AgLibraryFile": ["id_local", "folder", "baseName", "extension", "sidecarExtensions", "modTime"],
     "Adobe_images": ["id_local", "rootFile", "masterImage", "captureTime", "fileFormat", "pick", "rating",
                      "touchTime"],
+    "Adobe_libraryImageDevelopHistoryStep": ["image", "dateCreated"],
+    "AgLibraryImport": ["id_local", "importDate"],
+    "AgLibraryImportImage": ["image", "import"],
 }
 
 TIME_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*"

@@ -98,7 +98,56 @@ SELECT cast(id_local AS BIGINT) AS id,
        fileFormat AS file_format,
        try_cast(pick AS DOUBLE) AS pick,
        try_cast(rating AS DOUBLE) AS rating,
-       lr_time(touchTime) AS touch_time  -- last edit in Lightroom, metadata included
+       lr_time(touchTime) AS touch_time  -- set by any change, metadata included, and by import
 FROM lr.Adobe_images;
+
+-- Import moment per image, to tell an edit from the import itself. Step names
+-- are localised ("Import (...)", "Importeren (...)"), so they are not used.
+-- Session dates carry a time-zone offset; converted to UTC like lr_time.
+CREATE OR REPLACE TABLE lr_import AS
+WITH sess AS (
+    SELECT cast(ii.image AS BIGINT) AS image_id,
+           max(timezone('UTC', try_cast(im.importDate AS TIMESTAMPTZ))) AS session_start
+    FROM lr.AgLibraryImportImage ii
+    JOIN lr.AgLibraryImport im ON im.id_local = ii.import
+    GROUP BY 1
+),
+steps AS (
+    SELECT cast(image AS BIGINT) AS image_id, lr_time(dateCreated) AS step_time
+    FROM lr.Adobe_libraryImageDevelopHistoryStep
+),
+first_step AS (
+    SELECT image_id, min(step_time) AS first_step FROM steps GROUP BY 1
+)
+SELECT
+    coalesce(s.image_id, f.image_id) AS image_id,
+    -- the first develop step is the import step when it comes within a day of the session
+    CASE WHEN s.session_start IS NULL THEN f.first_step
+         WHEN f.first_step BETWEEN s.session_start AND s.session_start + INTERVAL 24 HOUR THEN f.first_step
+         ELSE s.session_start END AS import_time
+FROM sess s
+FULL OUTER JOIN first_step f ON f.image_id = s.image_id;
+
+-- Last edit in Lightroom: the touch date and the last develop step, each only
+-- when more than 10 minutes after the import moment
+CREATE OR REPLACE TABLE lr_edit AS
+WITH steps AS (
+    SELECT cast(image AS BIGINT) AS image_id, max(lr_time(dateCreated)) AS step_time
+    FROM lr.Adobe_libraryImageDevelopHistoryStep h
+    JOIN lr_import imp ON imp.image_id = cast(h.image AS BIGINT)
+    WHERE imp.import_time IS NULL OR lr_time(h.dateCreated) > imp.import_time + INTERVAL 10 MINUTE
+    GROUP BY 1
+)
+SELECT i.id AS image_id,
+       CASE WHEN t.touch IS NULL THEN st.step_time
+            WHEN st.step_time IS NULL THEN t.touch
+            ELSE greatest(t.touch, st.step_time) END AS edit_time
+FROM lr_image i
+LEFT JOIN lr_import imp ON imp.image_id = i.id
+LEFT JOIN steps st ON st.image_id = i.id
+CROSS JOIN LATERAL (
+    SELECT CASE WHEN imp.import_time IS NULL OR i.touch_time > imp.import_time + INTERVAL 10 MINUTE
+                THEN i.touch_time END AS touch
+) t;
 
 DETACH lr;

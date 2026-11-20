@@ -71,10 +71,11 @@ SELECT
     m.file_format AS lr_file_format,
     try_cast(substr(m.capture_time_raw, 1, 19) AS TIMESTAMP) AS capture_time,
     m.pick, m.rating,
-    m.touch_time,
+    ed.edit_time AS touch_time,      -- last Lightroom edit after import (lr_edit)
     f.mod_time AS catalog_mod_time   -- of the photo file; also used for its attached files
 FROM lr_entries e
 LEFT JOIN lr_photo m ON m.file_id = e.file_id
+LEFT JOIN lr_edit ed ON ed.image_id = m.id
 LEFT JOIN lr_file f  ON f.id = e.file_id
 LEFT JOIN scan_roots r ON starts_with(lower(e.path), r.root_lc)
 QUALIFY row_number() OVER (PARTITION BY lower(e.path)
