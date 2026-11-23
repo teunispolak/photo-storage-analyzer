@@ -27,7 +27,8 @@ Each client and each machine at a client has its own folder; machines are analys
 ~/photo-analysis/clients/<client>/<machine>/
   extracts/    received extracts, filed here by ./psa analyse
   analysis/    one analysis per extract
-  latest/      photos_pivot.xlsx and folder_tree.xlsx of the last analysis, for this machine's workbook
+  latest/      photos_pivot.xlsx and folder_tree.xlsx of the last analysis, for this machine's
+               workbook, and the settings.env the extract used, to change and send back
   pivots.xlsx  your workbook for this machine
 ```
 

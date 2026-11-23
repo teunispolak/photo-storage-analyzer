@@ -16,6 +16,8 @@ Steps:
 Output: <out>/<extract_id>/, extract_id = <client>_<machine>_<UTC timestamp>
   catalog.lrcat    copy of the Lightroom catalog
   files.csv        one row per file under the scan roots
+  settings.env     copy of the settings file used, if any
+  README.txt       what the extract holds, in plain text
   manifest.json    extract metadata, counts, checksums
   extract.log      log of the extract
 
@@ -433,6 +435,47 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
+def readme(m: dict) -> str:
+    """README.txt: a short index of the extract, in plain text."""
+    s = m["settings"]
+    roots = "\n".join(f"  {r}" for r in m["scan_roots"])
+    lines = [
+        f"Extract {m['extract_id']}",
+        "",
+        f"Made on {m['finished_local'].replace('T', ' ')} on {m['host']['name']},",
+        f"for client {m['client']}, machine {m['machine']}, of the photo folders:",
+        roots,
+        "",
+        "This folder describes the photo storage. It contains no photos.",
+        "",
+        "Files:",
+        "  files.csv       one line per file: name, folder, size and dates",
+    ]
+    if m.get("catalog"):
+        lines.append("  catalog.lrcat   a copy of the Lightroom Classic catalog")
+    if s is not None:
+        lines.append("  settings.env    the settings this extract was made with")
+    lines += [
+        "  extract.log     what the tool did, step by step",
+        "  manifest.json   counts and checksums, to check that nothing changed in transfer",
+        "  README.txt      this file",
+        "",
+    ]
+    if s is not None:
+        lines += [
+            "settings.env holds the client and machine names, the Lightroom catalog and",
+            "the photo folders to read. To change what the next extract covers, a changed",
+            "copy of this file is sent back and saved as ~/photo-analysis/settings.env on",
+            "the Mac that makes the extract.",
+        ]
+        if s.get("replaced_by_command_line"):
+            lines.append("For this extract, these values were given on the command line instead: "
+                         + ", ".join(s["replaced_by_command_line"]) + ".")
+    else:
+        lines.append("This extract was made without a settings file.")
+    return "\n".join(lines) + "\n"
+
+
 def apply_settings(args) -> Optional[dict]:
     """Fill scan roots and catalog from the settings file where the command
     line gave none. Returns the manifest record, or None without a file."""
@@ -553,6 +596,14 @@ def main(argv=None) -> int:
 
         files = scan(args.scan_roots, extract_dir)
 
+        # The settings file used, so a changed copy can be sent back for the next extract
+        if settings_record is not None:
+            copy = extract_dir / "settings.env"
+            shutil.copyfile(settings_record["file"], copy)
+            if sha256_file(copy) != settings_record["sha256"]:
+                raise RuntimeError(f"settings file changed during the extract: {settings_record['file']}")
+            settings_record["copy"] = copy.name
+
         finished_ts = time.time()
         manifest = {
             "schema": MANIFEST_SCHEMA,
@@ -587,6 +638,7 @@ def main(argv=None) -> int:
             "catalog": catalog,
             "files": files,
         }
+        (extract_dir / "README.txt").write_text(readme(manifest), encoding="utf-8")
         part = extract_dir / "manifest.json.part"
         part.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(part, extract_dir / "manifest.json")

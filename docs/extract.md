@@ -4,6 +4,8 @@ Runs on the client Mac. Produces an extract for the [Analyse runbook](analyse.md
 
 For the client there is a step-by-step [Extract guide](extract-guide.md). With it, the client sends you the locations of their catalog and photo folder; you write their `settings.env` from those (see [Settings file](#settings-file)) and send it back.
 
+Each extract carries a copy of the `settings.env` it was made with; after the analysis it is in `clients/<client>/<machine>/latest/settings.env`. To change what the next extract covers, such as the scan roots, edit that copy and send it to the client, who saves it as in step 5 of the guide. Keep `CLIENT` and `MACHINE` unchanged, so the next extract is filed with the previous ones.
+
 ## Terms
 
 | Term | Meaning |
@@ -90,5 +92,7 @@ The manifest records the file, its checksum, the values taken from it and the ke
 | `files.csv` | one row per file under the scan roots, with the root it was found under |
 | `manifest.json` | extract metadata, counts, checksums, tool version; written last |
 | `extract.log` | log of the extract |
+| `settings.env` | exact copy of the settings file used; absent without one |
+| `README.txt` | plain-text index of the extract, for the client and for you |
 
 The extract holds customer data: file paths and the full Lightroom catalog (keywords, GPS, face names).
