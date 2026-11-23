@@ -86,6 +86,18 @@ check "settings: --scan-root replaces all SCAN_ROOT lines" 0 $extract_raw --sett
 sext=$(oneext "$work/out_set_arg")
 check "settings: only the command-line root is scanned" 0 test "$(mq "$sext" "[m['scan_roots'], list(m['settings']['used']), m['settings']['replaced_by_command_line']]")" = "[[\"$d/vol/Photos\"], [\"CLIENT\", \"CATALOG\"], [\"SCAN_ROOT\", \"MACHINE\"]]"
 check "labels: --machine replaces MACHINE" 0 test "$(mq "$sext" "[m['client'], m['machine']]")" = "[\"acme\", \"bob\"]"
+# The settings file and a README travel with the extract
+sext2=$(oneext "$work/out_set")
+check "extract: settings.env is an exact copy of the settings file" 0 cmp -s "$sd/two.env" "$sext2/settings.env"
+check "extract: manifest names the copy" 0 test "$(mq "$sext2" "m['settings']['copy']")" = '"settings.env"'
+check "extract: README.txt names the extract, settings.env and no photos" 0 sh -c "grep -q '^Extract ${sext2:t}\$' '$sext2/README.txt' && grep -q 'settings.env    the settings' '$sext2/README.txt' && grep -q 'contains no photos' '$sext2/README.txt'"
+check "extract: README names values given on the command line" 0 grep -q 'command line instead: SCAN_ROOT, MACHINE' "$(oneext "$work/out_set_arg")/README.txt"
+check "verify: extract with settings.env" 0 $py -I "$repo/analyse/verify.py" "$sext2"
+check "verify: lists the settings copy" 0 sh -c "$py -I '$repo/analyse/verify.py' '$sext2' | grep -q '^ok   settings: settings.env'"
+cp -R "$sext2" "$work/set_changed"; print 'MACHINE="other"' >> "$work/set_changed/settings.env"
+check "verify: changed settings.env refused" 1 $py -I "$repo/analyse/verify.py" "$work/set_changed"
+cp -R "$sext2" "$work/set_missing"; mv "$work/set_missing/settings.env" "$work/set_missing.env"
+check "verify: missing settings.env refused" 1 $py -I "$repo/analyse/verify.py" "$work/set_missing"
 print -r -- 'CATALOG="$HOME/lr/Test.lrcat"' > "$sd/home.env"; print -r -- 'SCAN_ROOT="~/vol/Photos"' >> "$sd/home.env"
 check "settings: \$HOME and ~ expanded" 0 env HOME="$d" $extract --settings "$sd/home.env" --out "$work/out_set_home"
 check "settings: expanded values in the manifest" 0 test "$(mq "$(oneext "$work/out_set_home")" "m['settings']['used']")" = "{\"SCAN_ROOT\": [\"$d/vol/Photos\"], \"CATALOG\": \"$d/lr/Test.lrcat\"}"
@@ -146,6 +158,8 @@ check "manifest: schema 2, extract_id is the folder name, tool block" 0 test "$(
 check "extract: default output in ~/photo-analysis/extracts" 0 env HOME="$work/home_ext" $extract $args
 check "extract: one extract there" 0 test "$(ls "$work/home_ext/photo-analysis/extracts" | grep -c '^test_m1_')" = 1
 check "manifest: settings null without a file" 0 test "$(mq "$ext" "m['settings']")" = null
+check "extract: no settings.env without a settings file" 0 test ! -e "$ext/settings.env"
+check "extract: README says so" 0 grep -q 'made without a settings file' "$ext/README.txt"
 for f in catalog.lrcat files.csv manifest.json extract.log; do
   check "extract has $f" 0 test -f "$ext/$f"
 done
@@ -420,6 +434,8 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
   cp "$cl_dir/test/m1/latest/photos_pivot.xlsx" "$work/latest_m1.xlsx"
   check "clients: second machine of another client" 0 $anash_c "$(oneext "$work/out_set")"
   check "clients: its own latest" 0 test -f "$cl_dir/acme/anna/latest/photos_pivot.xlsx"
+  check "clients: latest holds the extract's settings.env, to send back" 0 cmp -s "$sd/two.env" "$cl_dir/acme/anna/latest/settings.env"
+  check "clients: no settings.env in latest for an extract without one" 0 test ! -e "$cl_dir/test/m1/latest/settings.env"
   check "clients: other machine's latest unchanged" 0 cmp -s "$work/latest_m1.xlsx" "$cl_dir/test/m1/latest/photos_pivot.xlsx"
   # Filing: the first default analysis copied the extract into its client and machine folder.
   # analyse.sh prints resolved paths (${x:A}); compare with those

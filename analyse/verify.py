@@ -65,6 +65,10 @@ def main() -> int:
     checks = [("files", m["files"])]
     if m.get("catalog"):
         checks.append(("catalog", m["catalog"]))
+    # The copy of the settings file, when the manifest names one (older extracts have none)
+    s = m.get("settings") or {}
+    if s.get("copy"):
+        checks.append(("settings", {"file": s["copy"], "sha256": s["sha256"]}))
 
     ok = True
     for label, entry in checks:

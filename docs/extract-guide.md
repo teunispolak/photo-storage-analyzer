@@ -117,7 +117,7 @@ open ~/photo-analysis/extracts
 
 Finder shows a folder whose name starts with the names from your settings file and ends with the date and time, for example `smith_anna_20261118T091500Z`. This is your extract. Right-click it and choose Compress to make a zip file of it, and send us the zip file in the way we agreed.
 
-The extract contains file and folder names, sizes and dates, and a copy of your Lightroom catalog. It contains no photos.
+The extract contains file and folder names, sizes and dates, a copy of your Lightroom catalog and of your settings file, and a short README. It contains no photos.
 
 ### 4. Tidy up
 

@@ -13,7 +13,8 @@
 #                 is then removed from it; one from elsewhere is left as is
 #   --out         output folder, and no filing; default, by client and machine:
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/analysis/<extract ID>/
-#                 with photos_pivot.xlsx and folder_tree.xlsx also copied to
+#                 with photos_pivot.xlsx, folder_tree.xlsx and the extract's
+#                 settings.env also copied to
 #                   $PSA_CLIENTS_DIR/<client>/<machine>/latest/
 #                 for that machine's pivot workbook
 #   --replace     overwrite the generated files in an existing output folder
@@ -199,6 +200,10 @@ latest=""
 if (( default_out )); then
   latest="${clients:A}/$client/$machine/latest"
   mkdir -p "$latest" && cp photos_pivot.xlsx folder_tree.xlsx "$latest/" || die "copy to $latest failed"
+  # The settings file the extract used: the version to change and send back
+  if [[ -f "$extract_dir/settings.env" ]]; then
+    cp "$extract_dir/settings.env" "$latest/settings.env" || die "copy of settings.env to $latest failed"
+  fi
 fi
 
 # 5. Summary
