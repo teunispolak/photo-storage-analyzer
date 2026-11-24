@@ -58,6 +58,8 @@ SELECT
          WHEN q.rel_folder = '' THEN '(root)'
          ELSE split_part(q.rel_folder, '/', 1) END AS top_folder,
     CASE WHEN q.rel_folder = '' THEN '(root)' ELSE q.rel_folder END AS folder,
+    -- the folder directly below top_folder; empty directly in a top folder or the scan root
+    nullif(split_part(q.rel_folder, '/', 2), '') AS subfolder,
     q.folder_path,
     q.name,
     round(q.size_bytes / 1e6, 1) AS size_mb,

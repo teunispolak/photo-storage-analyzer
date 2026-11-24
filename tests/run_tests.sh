@@ -300,6 +300,9 @@ json.dump(m, open(p, 'w'), indent=2)" "$work/badcat"
   check "scope: mapped analysis has only scanned files as rows" 0 test "$(dq "$work/ana_mapped/analysis.duckdb" -c "SELECT count(*) || '/' || count(*) FILTER (WHERE source = 'catalog only') FROM photos_pivot")" = "9/0"
   check "pivot: scan_root column" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT scan_root, ',') FROM photos_pivot")" = "$d/vol/Photos"
   check "pivot: every row has the scan root" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE scan_root IS NULL")" = 0
+  check "pivot: subfolder is the folder below top_folder" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT top_folder || '|' || subfolder FROM photos_pivot WHERE name = 'IMG_0001.CR2'")" = "2014|Trip"
+  check "pivot: subfolder empty directly in a top folder and in the scan root" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE subfolder IS NOT NULL AND (folder = '(root)' OR folder NOT LIKE '%/%')")" = 0
+  check "pivot: test data has files in the scan root and directly in a top folder" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT (count(*) FILTER (WHERE folder = '(root)') > 0) AND (count(*) FILTER (WHERE folder <> '(root)' AND folder NOT LIKE '%/%') > 0) FROM photos_pivot")" = true
 
   # Years for archive candidates: last modified (disk, else catalog), last Lightroom edit, the later of the two
   yy=$(date +%Y)
