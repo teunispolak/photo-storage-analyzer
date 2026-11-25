@@ -80,6 +80,8 @@ Times:
 
 The scan roots are the scope: every row in the `photos` table, the pivot file and the reports is a file under one of the scan roots, and carries that root in `scan_root`. Folder columns are relative to the file's own root. The catalog is used to look up those files (capture date, catalogued or not). Catalog entries outside all scan roots are not analysed; they are counted once, in `join_check.csv` and `reports/reconciliation.csv`.
 
+The catalog is a lookup table, read at the moment of the extract. Files on disk that it does not know are normal and always present: documents and other files Lightroom does not import, system files such as `.DS_Store`, and photos not imported yet. In the pivot they show as `filesystem only`. A pivot filtered or split by `source` shows part of a folder, not all of it.
+
 ## Join check
 
 | Metric | Read as |
