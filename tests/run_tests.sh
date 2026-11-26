@@ -422,8 +422,9 @@ sys.exit(0 if (r['rel_path'], r['top_folder'], r['scan_root']) == ('2020/X1.CR2'
     INSERT INTO catalog_entries (file_id, catalog_role, path, match_key, in_scope) VALUES
       (900, 'photo', '/old tree/2018/IMG_9.CR2', '/old tree/2018/img_9.cr2', false)\" -c '.read $repo/analyse/30_pivot.sql' > /dev/null"
   check "pivot: moved? also when the name is only outside the scan root" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint || '|' || catalog_folder FROM photos_pivot WHERE name = 'IMG_9.CR2' AND source = 'filesystem only'")" = "moved?|/old tree/2018"
-  check "pivot: raw next to its DNG gets dng original?" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT hint FROM photos_pivot WHERE name = 'IMG_8.CR2'")" = "dng original?"
-  check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 2
+  check "pivot: raw next to a catalogued DNG gets no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE name = 'IMG_8.CR2' AND hint IS NULL")" = 1
+  check "pivot: only moved? is a hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT string_agg(DISTINCT hint, ',') FROM photos_pivot")" = "moved?"
+  check "pivot: files without a cause get no hint" 0 test "$(dq "$work/hints/analysis.duckdb" -c "SELECT count(*) FROM photos_pivot WHERE hint IS NOT NULL")" = 1
 
   # Default output: filed by client and machine, latest per machine
   cl_dir="$work/clients"; anash_c=(env PSA_CLIENTS_DIR="$cl_dir" zsh "$repo/analyse/analyse.sh")
