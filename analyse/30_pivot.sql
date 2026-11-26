@@ -16,7 +16,6 @@ WITH p AS (
     -- paths relative to each file's own scan root
     SELECT ph.*,
         regexp_replace(ph.path, '/[^/]+$', '') AS folder_path,
-        regexp_replace(lower(ph.name), '\.[^.]+$', '') AS stem,
         CASE WHEN ph.scan_root IS NOT NULL
               AND starts_with(lower(ph.path), lower(ph.scan_root) || '/')
              THEN substr(ph.path, length(ph.scan_root) + 2) END AS rel_path_any
@@ -43,10 +42,6 @@ moved AS (  -- same name in the whole catalog (also outside the scan root), not 
     FROM catalog_entries c
     WHERE NOT EXISTS (SELECT 1 FROM scan s WHERE lower(s.path) = c.match_key)
     GROUP BY 1
-),
-dng AS (    -- same base name catalogued as a photo in the same folder
-    SELECT DISTINCT folder_path, stem, ext FROM q
-    WHERE on_disk AND in_catalog AND catalog_role = 'photo'
 )
 SELECT
     q.source,
@@ -67,11 +62,7 @@ SELECT
     q.lr_file_format,
     q.pick,
     q.rating,
-    CASE WHEN q.on_disk AND NOT q.in_catalog AND m.lname IS NOT NULL THEN 'moved?'
-         WHEN q.on_disk AND NOT q.in_catalog AND EXISTS (
-             SELECT 1 FROM dng d
-             WHERE d.folder_path = q.folder_path AND d.stem = q.stem AND d.ext <> q.ext)
-         THEN 'dng original?' END AS hint,
+    CASE WHEN q.on_disk AND NOT q.in_catalog AND m.lname IS NOT NULL THEN 'moved?' END AS hint,
     CASE WHEN q.on_disk AND NOT q.in_catalog THEN m.catalog_folder END AS catalog_folder,
     q.scan_root,
     year(q.last_modified) AS last_modified_year,

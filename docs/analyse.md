@@ -160,7 +160,7 @@ Example, files on disk that Lightroom does not know:
 - Columns: `hint`
 - Values: Count of `name`, Sum of `size_mb`
 
-`hint` = `moved?`: the catalog has a file with that name at `catalog_folder`, which may be outside the scan root. Outside it, this is usually a copy of the same photo in another tree; inside it, the file may have been moved outside Lightroom (Find Missing Folder). `dng original?`: the raw original next to its DNG. Empty: not imported.
+`hint` = `moved?`: the catalog has a file with that name at `catalog_folder`, which may be outside the scan root. Outside it, this is usually a copy of the same photo in another tree; inside it, the file may have been moved outside Lightroom (Find Missing Folder). Empty: not imported.
 
 ## Regression check
 
