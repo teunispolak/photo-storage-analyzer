@@ -227,7 +227,7 @@ sys.exit(0 if m.get(sys.argv[2]) == sys.argv[3] else (print(m.get(sys.argv[2])) 
   q() { env -u AI_AGENT -u CLAUDECODE duckdb -noheader -list "$ana/analysis.duckdb" -c "$1"; }
   check "join: JPEG of RAW+JPEG pair is an attached file" 0 test "$(q "SELECT catalog_role FROM photos WHERE name = 'IMG_0100.JPG'")" = attached
   check "join: catalog roles are photo and attached" 0 test "$(q "SELECT string_agg(DISTINCT catalog_role, ',' ORDER BY catalog_role) FROM photos")" = "attached,photo"
-  check "join: types for metadata and thumbnails" 0 test "$(q "SELECT string_agg(ext || ':' || type_group, ' ' ORDER BY ext) FROM types WHERE ext IN ('aae','pp3','thm','xmp')")" = "aae:metadata pp3:metadata thm:thumbnail xmp:metadata"
+  check "join: types for metadata; thm not listed (other)" 0 test "$(q "SELECT string_agg(ext || ':' || type_group, ' ' ORDER BY ext) FROM types WHERE ext IN ('aae','pp3','thm','xmp')")" = "aae:metadata pp3:metadata xmp:metadata"
   check "join: no master or sidecar left in values or metric names" 0 test "$(q "SELECT count(*) FROM (SELECT catalog_role AS v FROM photos UNION ALL SELECT type_group FROM photos UNION ALL SELECT metric FROM join_check) WHERE v ILIKE '%master%' OR v ILIKE '%sidecar%'")" = 0
   check "join: raw capture year from catalog" 0 test "$(q "SELECT capture_year || '/' || date_source FROM photos WHERE name = 'IMG_0001.CR2'")" = "2014/catalog"
   check "join: type groups" 0 test "$(q "SELECT string_agg(name || ':' || type_group, ' ' ORDER BY name) FROM photos WHERE name IN ('.DS_Store','IMG_0001.xmp','IMG_0100.NEF','root.txt')")" = ".DS_Store:system IMG_0001.xmp:metadata IMG_0100.NEF:raw root.txt:other"
@@ -619,6 +619,16 @@ open(p, 'w').write('\n'.join([lines[0]] + body) + '\n')" "$work/bl/analysis/repo
 
   rid=$($py -I -c "import json,sys; print(json.load(open(sys.argv[1]))['extract_id'])" "$ext/manifest.json")
   check "reports: every report stamped with extract_id" 0 test "$(rq "SELECT count(DISTINCT extract_id) || '/' || min(extract_id) FROM read_csv('$ana/reports/*.csv', union_by_name = true)")" = "1/$rid"
+  # Type groups: types.csv and the runbook section agree
+  check "types: heic is raw, png is output, thm is not listed" 0 test "$(rq "SELECT string_agg(ext || '=' || type_group, ' ' ORDER BY ext) FROM read_csv('$repo/analyse/types.csv') WHERE ext IN ('heic', 'png', 'thm')")" = "heic=raw png=output"
+  check "types: every group is in the Type groups section of the runbook" 0 $py -I -c "
+import csv, re, sys
+doc = open(sys.argv[2], encoding='utf-8').read()
+sec = doc.split('## Type groups', 1)[1].split('\n## ', 1)[0]
+listed = set(re.findall(r'^\| \x60(\w+)\x60 \|', sec, re.M))
+groups = {r['type_group'] for r in csv.DictReader(open(sys.argv[1]))} | {'system', 'dropbox', 'other'}
+sys.exit(0 if groups == listed else 1)" "$repo/analyse/types.csv" "$repo/docs/analyse.md"
+  check "types: JPEG in the test data is output" 0 test "$(dq "$ana/analysis.duckdb" -c "SELECT string_agg(DISTINCT type_group, ',') FROM photos WHERE lower(ext) IN ('jpg', 'jpeg')")" = output
   check "reports: raw = 2 files, 9000 bytes" 0 test "$(rq "SELECT files || '/' || bytes FROM '$ana/reports/volume_by_type.csv' WHERE type_group = 'raw'")" = "2/9000"
   check "reports: by year sums to 9 files" 0 test "$(rq "SELECT sum(files) FROM '$ana/reports/volume_by_year.csv'")" = 9
   check "reports: 2014 = 2 files dated by catalog" 0 test "$(rq "SELECT files || '/' || dated_by_catalog FROM '$ana/reports/volume_by_year.csv' WHERE capture_year = 2014")" = "2/2"
