@@ -98,6 +98,28 @@ The catalog is a lookup table, read at the moment of the extract. Files on disk 
 
 `matched` = 0 with a large `catalog_outside_scan_root` usually means the catalog stores the photos under another path than the scan root: check `extract.log` for `does not overlap`, and use `--path-from`/`--path-to`.
 
+## Type groups
+
+Each file gets a `type_group` in the analysis, so a changed grouping applies to existing extracts after analysing them again. The first rule that matches decides:
+
+1. By file name: `system` and `dropbox`.
+2. By extension, in lowercase, from [`analyse/types.csv`](../analyse/types.csv).
+3. Otherwise `other`.
+
+| Group | Files |
+|---|---|
+| `raw` | camera originals: raw formats (cr2, cr3, crw, nef, nrw, arw, srf, sr2, raf, orf, rw2, dng, pef, srw, 3fr, iiq, x3f) and heic, heif |
+| `output` | jpg, jpeg, tif, tiff, psd, psb, png |
+| `video` | mov, mp4, m4v, avi, mts, m2ts, mkv, 3gp |
+| `metadata` | sidecars: xmp, aae, pp3 |
+| `system` | files the operating system creates and rewrites: `.DS_Store`, `Thumbs.db`, `desktop.ini`, `Icon` folder icons, names starting with `._` |
+| `dropbox` | Dropbox's own files: `.dropbox`, `.dropbox.attr`, anything under `.dropbox.cache/` |
+| `other` | everything else: documents, unlisted extensions, files without an extension |
+
+JPEGs count as `output`, also those from a JPEG-only shoot. The JPEG of a RAW+JPEG pair can be told apart: its `catalog_role` is `attached`.
+
+Changes to the grouping go through an issue and PR, so the analysis output always matches a recorded version; `./psa regress` then shows which files move to another group.
+
 ## Pivot workbook
 
 `photos_pivot.xlsx` has one row per file under the scan root, found in the filesystem, the catalog or both (`source`). Its columns and their meaning are listed in [`analyse/pivot_columns.csv`](../analyse/pivot_columns.csv); that list is the contract, and every change to it comes with pivot impact steps in its PR.

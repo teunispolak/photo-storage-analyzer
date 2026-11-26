@@ -1,6 +1,6 @@
 column,type,meaning
 source,VARCHAR,"where the file was found: filesystem and catalog, filesystem only (not imported), or catalog only (expected under the scan root, not on disk)"
-type_group,VARCHAR,"kind of file, from analyse/types.csv and file name rules"
+type_group,VARCHAR,"kind of file: raw, output, video, metadata, system, dropbox or other; see Type groups in docs/analyse.md"
 ext,VARCHAR,"file extension, lowercase"
 capture_year,BIGINT,"year of capture_date"
 date_source,VARCHAR,"catalog (Lightroom capture time), mtime (file date), or none"
